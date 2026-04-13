@@ -6,7 +6,7 @@ import Memory from '../data/memory';
 import * as EasyStar from 'easystarjs';
 //---CONSTANTS---
 
-const TILE_SIZE = 30;
+const TILE_SIZE = 25;
 export default class BasicScene extends Phaser.Scene {
   // MAPS
   minimapContainer!: any;
@@ -324,39 +324,7 @@ export default class BasicScene extends Phaser.Scene {
     this.LightContext!.fillRect(0, 0, 3000, 3000);
     this.LightTexture.refresh();
   }
-  getPlayerDataForMeeting(): PlayerData[] {
-    const data: PlayerData[] = [
-      { id: 'CHRIS', color: 'red', isDead: false, isMe: true, votes: 0 },
-    ];
-    this.dummies.getChildren().forEach((d: any) => {
-      data.push({
-        id: d.name || 'Bot',
-        color: d.getData('colorName') || 'yellow',
-        isDead: d.getData('isDead') || false,
-        isMe: false,
-        votes: 0,
-      });
-    });
-    return data;
-  }
-  getLocation(x: number, y: number): string {
-    const loc = this.LocationZones.find((r) =>
-      Phaser.Geom.Rectangle.Contains(r.rect, x, y),
-    );
-    return loc ? loc.name : 'a hallway';
-  }
-  getLocationCoordinates(name: string): { x: number; y: number } {
-    const foundLocation = this.LocationZones.find((loc) => loc.name === name);
-    if (foundLocation) {
-      console.log(`[SUCCESS]: Found ${name}`);
-      return {
-        x: foundLocation.rect.x + foundLocation.rect.width / 2,
-        y: foundLocation.rect.y + foundLocation.rect.height / 2,
-      };
-    }
-    console.error('[ERROR]: GIVE PROPER LOCATION NAME');
-    return { x: 2250, y: 500 }; // table coord
-  }
+
   broadcastVent(venterName: string, ventX: number, ventY: number) {
     this.visibleZones.getChildren().forEach((z: any) => {
       const zone = z as Phaser.GameObjects.Zone;
@@ -395,7 +363,108 @@ export default class BasicScene extends Phaser.Scene {
       }
     });
   }
-  commandBotToLocation(
+
+  easyStarPathTraveller(
+    dummy: Phaser.Physics.Arcade.Sprite,
+    startGridX: number,
+    startGridY: number,
+    endGridX: number,
+    endGridY: number,
+  ) {
+    console.warn(startGridX, startGridY, endGridX, endGridY);
+
+    this.easystar.findPath(
+      startGridX,
+      startGridY,
+      endGridX,
+      endGridY,
+      (path: any) => {
+        if (path === null) {
+          console.log('[DUMMY] cant find the path');
+          dummy.setData('currentPath', []);
+        } else {
+          const worldPath = path.map((node: any) => ({
+            x: node.x * TILE_SIZE + TILE_SIZE / 2,
+            y: node.y * TILE_SIZE + TILE_SIZE / 2,
+          }));
+          console.log(
+            `[AI] ${dummy.name} found a path in ${worldPath.length} steps`,
+            worldPath,
+          );
+          dummy.setData('currentPath', worldPath);
+          dummy.setData('isTravelling', true);
+        }
+      },
+    );
+    this.easystar.calculate();
+  }
+  //GETS
+  getPlayerDataForMeeting(): PlayerData[] {
+    const data: PlayerData[] = [
+      { id: 'CHRIS', color: 'red', isDead: false, isMe: true, votes: 0 },
+    ];
+    this.dummies.getChildren().forEach((d: any) => {
+      data.push({
+        id: d.name || 'Bot',
+        color: d.getData('colorName') || 'yellow',
+        isDead: d.getData('isDead') || false,
+        isMe: false,
+        votes: 0,
+      });
+    });
+    return data;
+  }
+  getLocation(x: number, y: number): string {
+    const loc = this.LocationZones.find((r) =>
+      Phaser.Geom.Rectangle.Contains(r.rect, x, y),
+    );
+    return loc ? loc.name : 'a hallway';
+  }
+  getLocationCoordinates(name: string): { x: number; y: number } {
+    const foundLocation = this.LocationZones.find((loc) => loc.name === name);
+    if (foundLocation) {
+      console.log(`[SUCCESS]: Found ${name}`);
+      return {
+        x: foundLocation.rect.x + foundLocation.rect.width / 2,
+        y: foundLocation.rect.y + foundLocation.rect.height / 2,
+      };
+    }
+    console.error('[ERROR]: GIVE PROPER LOCATION NAME');
+    return { x: 2600, y: 500 }; // table coord
+  }
+  getTaskCoordinates(name: string): { x: number; y: number } {
+    const foundTask = this.taskGroup
+      .getChildren()
+      .find((task) => task.name === name);
+    console.warn(this.taskGroup.getChildren());
+
+    if (foundTask) {
+      const body = foundTask.body as Phaser.Physics.Arcade.Body;
+      return {
+        x: body?.x + body?.halfWidth,
+        y: body?.y + body?.halfHeight,
+      };
+    }
+    console.error('[ERROR]: GIVE PROPER TASK NAME');
+    return { x: 2600, y: 500 };
+  }
+  getVentCoordinates(name: string): { x: number; y: number } {
+    const foundTask = this.ventGroup
+      .getChildren()
+      .find((task) => task.name === name);
+    if (foundTask) {
+      const body = foundTask.body as Phaser.Physics.Arcade.Body;
+      return {
+        x: body?.x + body?.halfWidth,
+        y: body?.y + body?.halfHeight,
+      };
+    }
+    console.error('[ERROR]: GIVE PROPER TASK NAME');
+    return { x: 2600, y: 500 };
+  }
+
+  //COMMANDS
+  commandBotToSpot(
     dummy: Phaser.Physics.Arcade.Sprite,
     targetX: number,
     targetY: number,
@@ -495,31 +564,21 @@ export default class BasicScene extends Phaser.Scene {
       }
     }
     console.log('[GRID VISUAL]\n' + gridDebug);
-
-    this.easystar.findPath(
+    this.easyStarPathTraveller(
+      dummy,
       startGridX,
       startGridY,
       endGridX,
       endGridY,
-      (path: any) => {
-        if (path === null) {
-          console.log('[DUMMY] cant find the path');
-          dummy.setData('currentPath', []);
-        } else {
-          const worldPath = path.map((node: any) => ({
-            x: node.x * TILE_SIZE + TILE_SIZE / 2,
-            y: node.y * TILE_SIZE + TILE_SIZE / 2,
-          }));
-          console.log(
-            `[AI] ${dummy.name} found a path in ${worldPath.length} steps`,
-            worldPath,
-          );
-          dummy.setData('currentPath', worldPath);
-          dummy.setData('isTravelling', true);
-        }
-      },
     );
-    this.easystar.calculate();
+  }
+  commandBotToFollow(
+    dummy: Phaser.Physics.Arcade.Sprite,
+    target: Phaser.Physics.Arcade.Sprite,
+  ) {
+    dummy.setData('isFollowing', true);
+    dummy.setData('followTarget', target);
+    dummy.setData('lastPingTime', 0);
   }
   findClosestWalkable(gridX: number, gridY: number): { x: number; y: number } {
     //SMALLER BFS
@@ -559,6 +618,7 @@ export default class BasicScene extends Phaser.Scene {
     // Fallback (if it's completely surrounded by walls)
     return { x: gridX, y: gridY };
   }
+
   // --- PHASER LIFECYCLE ---
 
   preload() {
@@ -654,6 +714,7 @@ export default class BasicScene extends Phaser.Scene {
         const centerX = task.x + task.width / 2;
         const centerY = task.y + task.height / 2;
         const zone = this.add.zone(centerX, centerY, task.width, task.height);
+        zone.name = task.name;
         this.physics.add.existing(zone, true);
         (zone.body as Phaser.Physics.Arcade.StaticBody).updateFromGameObject(); // Ensures static physics body locks to size
 
@@ -685,6 +746,7 @@ export default class BasicScene extends Phaser.Scene {
           'targetVent',
           vent.name.slice(0, 4) + String(Number(vent.name.slice(4)) + 1),
         );
+        zone.name = vent.name;
         zone.setData('currVent', vent.name);
         zone.setData('currVentPos', [
           vent.x + vent.width / 2,
@@ -740,6 +802,9 @@ export default class BasicScene extends Phaser.Scene {
 
     this.dummies.children.iterate((dumm: any) => {
       dumm.setData('isDead', false);
+      dumm.setData('isFollowing', false);
+      dumm.setData('followTarget', []);
+      dumm.setData('lastPingTime', null);
       dumm.setData('memory', new Memory());
       dumm.setData('role', 'crewmate');
       dumm.setScale(0.3).setCollideWorldBounds(true);
@@ -751,7 +816,7 @@ export default class BasicScene extends Phaser.Scene {
     //GRID PATHS
     ///GENERATE MATRIX FOR A*
 
-    this.time.delayedCall(10, () => {
+    this.time.delayedCall(5000, () => {
       //:Delaying so that the map can be formed
       const gridRows = Math.ceil(this.mainMapHeight / TILE_SIZE); //y
       const gridCols = Math.ceil(this.mainMapWidth / TILE_SIZE); //x
@@ -795,10 +860,13 @@ export default class BasicScene extends Phaser.Scene {
       this.easystar.enableDiagonals();
       this.easystar.disableCornerCutting();
       //not working: upper engine,lower engine, storage
-      const moveToLoc1 = this.getLocationCoordinates('lower engine');
-      const moveToLoc2 = this.getLocationCoordinates('reactor');
-      this.commandBotToLocation(dum1, moveToLoc1.x, moveToLoc1.y); //TEST dummies -> nav
-      this.commandBotToLocation(dum2, moveToLoc2.x, moveToLoc2.y); //TEST dummies -> nav
+      // const moveToLoc1 = this.getVentCoordinates('vent1');
+      // const moveToLoc2 = this.getVentCoordinates('vent2');
+      // this.commandBotToSpot(dum1, moveToLoc1.x, moveToLoc1.y); //TEST dummies -> nav
+      // this.commandBotToSpot(dum2, moveToLoc2.x, moveToLoc2.y); //TEST dummies -> nav
+      console.log(this.player);
+
+      this.commandBotToFollow(dum1, this.player);
     });
     // 5. ZONES & UI (The Fixes)
     this.killZone = this.add.zone(0, 0, 200, 200);
@@ -1136,6 +1204,27 @@ export default class BasicScene extends Phaser.Scene {
       }
     }
     this.player.body.velocity.normalize().scale(speed);
+    //STALKER FOLLOW LOGIC
+    this.dummies.getChildren().forEach((d: any) => {
+      const dummy = d as Phaser.Physics.Arcade.Sprite;
+
+      if (dummy.getData('isFollowing')) {
+        const target = dummy.getData('followTarget');
+        const lastPingTime = dummy.getData('lastPingTime');
+        const currTime = this.time.now;
+        const INTERVAL_MS = 500;
+        if (currTime - lastPingTime > INTERVAL_MS) {
+          dummy.setData('lastPingTime', currTime);
+          this.easyStarPathTraveller(
+            dummy,
+            dummy.x,
+            dummy.y,
+            target.x,
+            target.y,
+          );
+        }
+      }
+    });
     //DUMMY MOVEMENT
     this.dummies.getChildren().forEach((d: any) => {
       const dummy = d as Phaser.Physics.Arcade.Sprite;

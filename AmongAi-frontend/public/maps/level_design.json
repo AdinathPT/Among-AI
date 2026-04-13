@@ -2622,16 +2622,16 @@
          "name":"Tasks",
          "objects":[
                 {
-                 "height":181.818,
+                 "height":194.818,
                  "id":261,
                  "name":"cardTask",
                  "opacity":1,
                  "rotation":0,
                  "type":"",
                  "visible":true,
-                 "width":284.848,
-                 "x":2572.73,
-                 "y":1218.18
+                 "width":293.848,
+                 "x":2564.73,
+                 "y":1172.18
                 }, 
                 {
                  "height":139.394,
@@ -2678,8 +2678,8 @@
                  "type":"",
                  "visible":true,
                  "width":159.5,
-                 "x":3022.5,
-                 "y":379.5
+                 "x":3008.5,
+                 "y":396.5
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -2953,7 +2953,7 @@
                  "rotation":0,
                  "type":"",
                  "visible":true,
-                 "width":336,
+                 "width":387,
                  "x":294.667,
                  "y":612
                 }, 
@@ -3170,8 +3170,8 @@
                  "type":"",
                  "visible":true,
                  "width":509.091,
-                 "x":1913.4545,
-                 "y":1773.5455
+                 "x":1913.45,
+                 "y":1773.55
                 }, 
                 {
                  "height":270.909,
@@ -3182,8 +3182,8 @@
                  "type":"",
                  "visible":true,
                  "width":116.091,
-                 "x":1900.4545,
-                 "y":1501.5455
+                 "x":1900.45,
+                 "y":1501.55
                 }, 
                 {
                  "height":270.909,
@@ -3194,20 +3194,20 @@
                  "type":"",
                  "visible":true,
                  "width":116.091,
-                 "x":2297.9545,
-                 "y":1495.5455
+                 "x":2297.95,
+                 "y":1495.55
                 }, 
                 {
                  "height":108.697,
                  "id":320,
                  "name":"lower engine (right)",
                  "opacity":1,
-                 "rotation":89.6118124653133,
+                 "rotation":89.6118,
                  "type":"",
                  "visible":true,
-                 "width":164.626505584651,
-                 "x":1087.85339896671,
-                 "y":1464.3369256374
+                 "width":164.627,
+                 "x":1087.85,
+                 "y":1464.34
                 }, 
                 {
                  "height":108.697,
@@ -3218,20 +3218,20 @@
                  "type":"",
                  "visible":true,
                  "width":466.667,
-                 "x":651.6665,
-                 "y":1359.6515
+                 "x":651.667,
+                 "y":1359.65
                 }, 
                 {
-                 "height":85.7573378439039,
+                 "height":85.7573,
                  "id":322,
                  "name":"upper engine (right)",
                  "opacity":1,
                  "rotation":90,
                  "type":"",
                  "visible":true,
-                 "width":183.781812091958,
-                 "x":1081.85805540051,
-                 "y":426.89649422415
+                 "width":183.782,
+                 "x":1081.86,
+                 "y":426.896
                 }, 
                 {
                  "height":94.727,
@@ -3243,11 +3243,11 @@
                  "visible":true,
                  "width":478.788,
                  "x":729.606,
-                 "y":608.6365
+                 "y":608.636
                 }],
          "opacity":1,
          "type":"objectgroup",
-         "visible":true,
+         "visible":false,
          "x":0,
          "y":0
         }],
