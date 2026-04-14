@@ -2401,8 +2401,8 @@
                  "rotation":0,
                  "type":"",
                  "visible":true,
-                 "width":303,
-                 "x":1068,
+                 "width":295,
+                 "x":1076,
                  "y":1521
                 }, 
                 {
@@ -2598,7 +2598,7 @@
                  "y":1688.67
                 }, 
                 {
-                 "height":142,
+                 "height":142.818,
                  "id":255,
                  "name":"",
                  "opacity":1,
@@ -2608,6 +2608,18 @@
                  "width":15.3333,
                  "x":1076,
                  "y":1378
+                }, 
+                {
+                 "height":25.75,
+                 "id":324,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"",
+                 "visible":true,
+                 "width":6.25,
+                 "x":1092.25,
+                 "y":301
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -2622,16 +2634,16 @@
          "name":"Tasks",
          "objects":[
                 {
-                 "height":194.818,
+                 "height":186.318,
                  "id":261,
                  "name":"cardTask",
                  "opacity":1,
                  "rotation":0,
                  "type":"",
                  "visible":true,
-                 "width":293.848,
-                 "x":2564.73,
-                 "y":1172.18
+                 "width":369.848,
+                 "x":2527.73,
+                 "y":1139.68
                 }, 
                 {
                  "height":139.394,
@@ -2660,7 +2672,7 @@
                 {
                  "height":259,
                  "id":267,
-                 "name":"NavTask",
+                 "name":"navTask",
                  "opacity":1,
                  "rotation":0,
                  "type":"",
@@ -2678,8 +2690,8 @@
                  "type":"",
                  "visible":true,
                  "width":159.5,
-                 "x":3008.5,
-                 "y":396.5
+                 "x":2993.5,
+                 "y":415
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -3252,7 +3264,7 @@
          "y":0
         }],
  "nextlayerid":8,
- "nextobjectid":324,
+ "nextobjectid":327,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.12.1",

@@ -141,7 +141,7 @@ export default function MeetingModal({
             {players?.map((p: PlayerData) => {
               const isSelected = selectedVote === p.id;
               const canVote = phase === 'Voting' && !p.isDead;
-              console.log(p.color);
+
               return (
                 <button
                   key={p.id}

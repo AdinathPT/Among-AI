@@ -10,6 +10,7 @@ declare global {
     triggerMeeting: (data: PlayerData[]) => void;
     triggerTask: (taskID: string) => void;
     toggleKeyboard: (isEnabled: boolean) => void;
+    resumePhaserGame: () => void;
   }
 }
 
@@ -50,7 +51,10 @@ function App() {
   const handleCloseMeeting = () => {
     setIsOpen(false);
     const phaserGame = window.game;
-
+    if (typeof window.resumePhaserGame === 'function') {
+      // 2. Fire the Phaser function!
+      window.resumePhaserGame();
+    }
     if (phaserGame) {
       const scene = phaserGame.scene.getScene('BasicScene');
 

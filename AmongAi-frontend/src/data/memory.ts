@@ -21,8 +21,8 @@ export default class Memory {
       `[${humanTime}]:${targetName} was found ${isDead ? 'DEAD' : 'ALIVE'} at ${location}`,
     );
 
-    if (this.sight[ownerName].length > 10) {
-      this.sight[ownerName].shift(); // keep only the recent 10 logs
+    if (this.sight[ownerName].length > 20) {
+      this.sight[ownerName].shift(); // keep only the recent 20 logs
     }
   }
   writeOthersActivity(
@@ -43,8 +43,8 @@ export default class Memory {
       `[${humanTime}]:${targetName} is standing near ${task} for ${timeSpan}s`,
     );
 
-    if (this.othersactivity[ownerName].length > 10) {
-      this.othersactivity[ownerName].shift(); // keep only the recent 10 logs
+    if (this.othersactivity[ownerName].length > 20) {
+      this.othersactivity[ownerName].shift(); // keep only the recent 20 logs
     }
   }
 
@@ -56,8 +56,8 @@ export default class Memory {
     });
     this.myactivity.push(`[${humanTime}]:I was in ${location} doing ${action}`);
 
-    if (this.myactivity.length > 10) {
-      this.myactivity.shift(); // keep only the recent 10 logs
+    if (this.myactivity.length > 20) {
+      this.myactivity.shift(); // keep only the recent 20 logs
     }
   }
 

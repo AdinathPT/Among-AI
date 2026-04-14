@@ -5,8 +5,20 @@ import type { PlayerData } from '../components/MeetingModal';
 import Memory from '../data/memory';
 import * as EasyStar from 'easystarjs';
 //---CONSTANTS---
-
+interface TYPEtask {
+  name: string;
+  timeRange: number[];
+}
 const TILE_SIZE = 25;
+const ALL_TASKS: TYPEtask[] = [
+  { name: 'cardTask', timeRange: [10, 15] },
+  { name: 'eleTask', timeRange: [15, 25] },
+  { name: 'reactorTask', timeRange: [20, 30] },
+  { name: 'navTask', timeRange: [15, 20] },
+  { name: 'chairTask', timeRange: [30, 45] },
+];
+const emergency_button_loc = { x: 2100, y: 500 };
+
 export default class BasicScene extends Phaser.Scene {
   // MAPS
   minimapContainer!: any;
@@ -34,15 +46,18 @@ export default class BasicScene extends Phaser.Scene {
   killZone!: Phaser.GameObjects.Zone;
   interactZone!: Phaser.GameObjects.Zone;
   visibleZones!: Phaser.Physics.Arcade.Group;
-
+  //TASKS
+  totalNoOfTasks: number = 4 * 5;
   // CURRENT STATE
-  currentTarget: any = null;
-  currentTask: string | null = null;
-  reportTarget: boolean = false;
-  targetVent: string | null = null;
   isIdle: boolean = true;
+  isMeetingCalled: boolean = false;
+  isSabotaged: boolean = false;
+  reportTarget: boolean = false;
+  currentTask: string | null = null;
+  targetVent: string | null = null;
   nextKillTime: number = 0;
   nextSabotageTime: number = 0;
+  currentTarget: any = null;
 
   currVentPos: number[] = [];
 
@@ -163,7 +178,7 @@ export default class BasicScene extends Phaser.Scene {
       sh - 280,
       'btn_report',
       'R',
-      () => this.executeReport(),
+      () => this.executeReport(this.player.name),
     );
     this.uiGroup.add(useBtn);
     this.uiGroup.add(reportBtn);
@@ -213,12 +228,14 @@ export default class BasicScene extends Phaser.Scene {
     this.nextKillTime = this.time.now + 10 * 1000;
   }
 
-  executeReport() {
+  executeReport(reportedBy: string) {
     // Only allow report if there's a body OR we are at the emergency button
     if (!this.reportTarget && this.currentTask !== 'emergency_button') return;
 
     const tableX = 2250,
       tableY = 500;
+    console.warn(`DEAD BODY REPORTED BY ${reportedBy}`);
+
     const survivors = [this.player];
 
     this.dummies.getChildren().forEach((d: any) => {
@@ -240,7 +257,6 @@ export default class BasicScene extends Phaser.Scene {
   executeTasks() {
     // (window as any).toggleKeyboard = (isEnabled: boolean) => {
     //   this.input.keyboard!.enabled = isEnabled;
-
     //   // Also, if you want to stop the player from sliding when the task opens:
     //   if (!isEnabled) {
     //     this.player.setVelocity(0, 0);
@@ -252,7 +268,7 @@ export default class BasicScene extends Phaser.Scene {
     if (this.currentTask === 'emergency_button') {
       this.sound.play('emergencyMeeting', { volume: 0.3 });
       setTimeout(() => {
-        this.executeReport();
+        this.executeReport(this.player.name);
       }, 1500);
     } else {
       this.physics.pause();
@@ -260,6 +276,7 @@ export default class BasicScene extends Phaser.Scene {
 
       if ((window as any).triggerTask) {
         (window as any).triggerTask(this.currentTask);
+        this.totalNoOfTasks -= 1; //TODO: MAKE IT SUCH THAT ONLY END OF TASK THIS IS UPDATED
       }
     }
   }
@@ -296,11 +313,13 @@ export default class BasicScene extends Phaser.Scene {
   }
   executeSabotage() {
     if (this.time.now < this.nextSabotageTime) return;
+    this.isSabotaged = true;
     this.toggleLight(false);
     this.sound.play('sabotage', { volume: 0.5, loop: true });
     this.nextSabotageTime = this.time.now + 40 * 1000;
 
     this.time.delayedCall(10 * 1000, () => {
+      this.isSabotaged = false;
       this.toggleLight(true);
       this.sound.stopByKey('sabotage');
     });
@@ -351,6 +370,15 @@ export default class BasicScene extends Phaser.Scene {
 
         if (observerSprite) {
           const room = this.getLocation(ventX, ventY); // Use your room detector!
+          this.commandBotToSpot(
+            observerSprite,
+            emergency_button_loc.x,
+            emergency_button_loc.y,
+          );
+          observerSprite.setData('isWorking', false);
+          observerSprite.setData('isPanicking', true);
+          observerSprite.setData('venterName', venterName);
+          console.log(observerSprite);
 
           observerSprite.getData('memory').writeSight(
             observerName,
@@ -366,12 +394,38 @@ export default class BasicScene extends Phaser.Scene {
 
   easyStarPathTraveller(
     dummy: Phaser.Physics.Arcade.Sprite,
-    startGridX: number,
-    startGridY: number,
-    endGridX: number,
-    endGridY: number,
+    endX: number,
+    endY: number,
   ) {
-    console.warn(startGridX, startGridY, endGridX, endGridY);
+    if (!this.easystar) {
+      console.log(
+        `[AI] EasyStar is not ready yet. ${dummy.name} command ignored.`,
+      );
+      return;
+    }
+    const maxCols = this.grids[0].length - 1;
+    const maxRows = this.grids.length - 1;
+
+    const startGridX: number = Phaser.Math.Clamp(
+      Math.floor(dummy.x / TILE_SIZE),
+      0,
+      maxCols,
+    );
+    const startGridY: number = Phaser.Math.Clamp(
+      Math.floor(dummy.y / TILE_SIZE),
+      0,
+      maxRows,
+    );
+    const endGridX: number = Phaser.Math.Clamp(
+      Math.floor(endX / TILE_SIZE),
+      0,
+      maxCols,
+    );
+    const endGridY: number = Phaser.Math.Clamp(
+      Math.floor(endY / TILE_SIZE),
+      0,
+      maxRows,
+    );
 
     this.easystar.findPath(
       startGridX,
@@ -379,8 +433,13 @@ export default class BasicScene extends Phaser.Scene {
       endGridX,
       endGridY,
       (path: any) => {
+        if (dummy.getData('isDead')) return;
         if (path === null) {
-          console.log('[DUMMY] cant find the path');
+          console.warn(
+            `[${dummy.name}] cant find the path to`,
+            endGridX,
+            endGridY,
+          );
           dummy.setData('currentPath', []);
         } else {
           const worldPath = path.map((node: any) => ({
@@ -436,7 +495,6 @@ export default class BasicScene extends Phaser.Scene {
     const foundTask = this.taskGroup
       .getChildren()
       .find((task) => task.name === name);
-    console.warn(this.taskGroup.getChildren());
 
     if (foundTask) {
       const body = foundTask.body as Phaser.Physics.Arcade.Body;
@@ -462,76 +520,7 @@ export default class BasicScene extends Phaser.Scene {
     console.error('[ERROR]: GIVE PROPER TASK NAME');
     return { x: 2600, y: 500 };
   }
-
-  //COMMANDS
-  commandBotToSpot(
-    dummy: Phaser.Physics.Arcade.Sprite,
-    targetX: number,
-    targetY: number,
-  ) {
-    if (!this.easystar) {
-      console.warn(
-        `[AI] EasyStar is not ready yet. ${dummy.name} command ignored.`,
-      );
-      return;
-    }
-    const maxCols = this.grids[0].length - 1;
-    const maxRows = this.grids.length - 1;
-
-    let startGridX: number = Phaser.Math.Clamp(
-      Math.floor(dummy.x / TILE_SIZE),
-      0,
-      maxCols,
-    );
-    let startGridY: number = Phaser.Math.Clamp(
-      Math.floor(dummy.y / TILE_SIZE),
-      0,
-      maxRows,
-    );
-    let endGridX: number = Phaser.Math.Clamp(
-      Math.floor(targetX / TILE_SIZE),
-      0,
-      maxCols,
-    );
-    let endGridY: number = Phaser.Math.Clamp(
-      Math.floor(targetY / TILE_SIZE),
-      0,
-      maxRows,
-    );
-    console.log(`Grid Size: ${this.grids[0].length}x${this.grids.length}`);
-    console.log(
-      `Pathing from Start: [${startGridX}, ${startGridY}] to End: [${endGridX}, ${endGridY}]`,
-    );
-    const startTile = this.grids[startGridY][startGridX]; // if 1 -> center is inside wall
-    const endTile = this.grids[endGridY][endGridX]; // if 1 -> center is inside wall
-    if (startTile === 1) {
-      console.error(
-        `[AI TILE CHECK FOR START] Target [${startGridY},${startGridX}] is wall! Finding safe spot...`,
-        this.grids[startGridY][startGridX],
-      );
-      const safeSpot = this.findClosestWalkable(startGridX, startGridY);
-      startGridX = safeSpot.x;
-      startGridY = safeSpot.y;
-      console.warn(
-        `[new safe grid]:[${startGridY},${startGridX}]=${this.grids[startGridY][startGridX]}`,
-      );
-    }
-    if (endTile === 1) {
-      console.log(
-        `[AI TILE CHECK FOR END] Target [${endGridX},${endGridY}] is wall! Finding safe spot...`,
-      );
-      const safeSpot = this.findClosestWalkable(endGridX, endGridY);
-      endGridX = safeSpot.x;
-      endGridY = safeSpot.y;
-      console.warn(
-        `[new safe grid]:[${endGridX},${endGridY}]=${this.grids[endGridY][endGridX]}`,
-      );
-    }
-    console.log(
-      '[GRID CHECK] Start tile value:',
-      this.grids[startGridY][startGridX],
-    );
-    console.log('[GRID CHECK] End tile value:', this.grids[endGridY][endGridX]);
+  gridDebug() {
     console.log(
       '[GRID CHECK] Grid dimensions:',
       this.grids.length,
@@ -564,13 +553,18 @@ export default class BasicScene extends Phaser.Scene {
       }
     }
     console.log('[GRID VISUAL]\n' + gridDebug);
-    this.easyStarPathTraveller(
-      dummy,
-      startGridX,
-      startGridY,
-      endGridX,
-      endGridY,
-    );
+  }
+
+  //COMMANDS
+  commandBotToSpot(
+    dummy: Phaser.Physics.Arcade.Sprite,
+    targetX: number,
+    targetY: number,
+  ) {
+    // this.gridDebug();
+    console.log(`[${dummy.name}] wants to go to ${targetX}, ${targetY}`);
+
+    this.easyStarPathTraveller(dummy, targetX, targetY);
   }
   commandBotToFollow(
     dummy: Phaser.Physics.Arcade.Sprite,
@@ -618,7 +612,15 @@ export default class BasicScene extends Phaser.Scene {
     // Fallback (if it's completely surrounded by walls)
     return { x: gridX, y: gridY };
   }
+  //---BRIDGE / for REACT---
+  resumeGameAfterMeeting() {
+    this.isMeetingCalled = false; // Unlock the button
+    this.reportTarget = false;
+    this.currentTask = null;
 
+    this.scene.resume();
+    this.physics.resume();
+  }
   // --- PHASER LIFECYCLE ---
 
   preload() {
@@ -659,8 +661,9 @@ export default class BasicScene extends Phaser.Scene {
   }
 
   create() {
-    //---CONSTANTS---
-
+    //---REACTJS BRIDGE---
+    //EXPOSE MEMBERS TO REACT
+    (window as any).resumePhaseGame = this.resumeGameAfterMeeting.bind(this);
     // 1. ENVIRONMENT & MAP
     const map = this.add.image(0, 0, 'map_Skeld').setOrigin(0, 0);
     this.physics.world.setBounds(0, 0, map.width, map.height);
@@ -796,17 +799,26 @@ export default class BasicScene extends Phaser.Scene {
     const dum1 = this.dummies.create(2500, 480, 'player_walk');
     this.applyColorPreset(dum1, 'yellow');
     dum1.name = 'yellow';
+    dum1.setData('todoTasksIndex', [0, 2, 4]);
+    dum1.setData('isAllTaskDone', false);
     const dum2 = this.dummies.create(2100, 480, 'player_walk');
     this.applyColorPreset(dum2, 'pink');
     dum2.name = 'pink';
+    dum2.setData('todoTasksIndex', [0, 3]);
+    dum1.setData('isAllTaskDone', false);
 
     this.dummies.children.iterate((dumm: any) => {
+      dumm.setData('role', 'crewmate');
       dumm.setData('isDead', false);
+      //follow
       dumm.setData('isFollowing', false);
       dumm.setData('followTarget', []);
       dumm.setData('lastPingTime', null);
+      //task
+      dumm.setData('isWorking', false);
+      dumm.setData('currTaskIndex', 0); // currTaskIndex --index of--> todoTasksIndex --index of--> ALL_TASKS
+      //memory
       dumm.setData('memory', new Memory());
-      dumm.setData('role', 'crewmate');
       dumm.setScale(0.3).setCollideWorldBounds(true);
       dumm.body.setSize(50, 50).setOffset(120, 150);
     });
@@ -815,8 +827,7 @@ export default class BasicScene extends Phaser.Scene {
     this.physics.add.collider(this.dummies, walls);
     //GRID PATHS
     ///GENERATE MATRIX FOR A*
-
-    this.time.delayedCall(5000, () => {
+    this.time.delayedCall(1000, () => {
       //:Delaying so that the map can be formed
       const gridRows = Math.ceil(this.mainMapHeight / TILE_SIZE); //y
       const gridCols = Math.ceil(this.mainMapWidth / TILE_SIZE); //x
@@ -859,14 +870,13 @@ export default class BasicScene extends Phaser.Scene {
       this.easystar.setAcceptableTiles([0]);
       this.easystar.enableDiagonals();
       this.easystar.disableCornerCutting();
-      //not working: upper engine,lower engine, storage
-      // const moveToLoc1 = this.getVentCoordinates('vent1');
+
+      // const moveToLoc1 = this.getTaskCoordinates('chairTask');
       // const moveToLoc2 = this.getVentCoordinates('vent2');
       // this.commandBotToSpot(dum1, moveToLoc1.x, moveToLoc1.y); //TEST dummies -> nav
       // this.commandBotToSpot(dum2, moveToLoc2.x, moveToLoc2.y); //TEST dummies -> nav
-      console.log(this.player);
-
-      this.commandBotToFollow(dum1, this.player);
+      // console.log(this.player);
+      // this.commandBotToFollow(dum2, dum1);
     });
     // 5. ZONES & UI (The Fixes)
     this.killZone = this.add.zone(0, 0, 200, 200);
@@ -959,11 +969,11 @@ export default class BasicScene extends Phaser.Scene {
 
   update() {
     // 1. RESET STATE FIRST (so that buttons can have low alpha )
+    this.reportTarget = false;
+    this.isMeetingCalled = false;
     this.currentTask = null;
     this.currentTarget = null;
-    this.reportTarget = false;
     this.targetVent = null;
-
     // 2. TRACK ZONES TO PLAYER
     this.killZone.setPosition(this.player.x, this.player.y);
     this.interactZone.setPosition(this.player.x, this.player.y);
@@ -998,6 +1008,7 @@ export default class BasicScene extends Phaser.Scene {
           zone.x = dummy.x;
           zone.y = dummy.y;
         }
+
         const prevLoc = dummy.getData('loc') || '';
         const currLoc = this.getLocation(dummy.x, dummy.y);
 
@@ -1006,6 +1017,18 @@ export default class BasicScene extends Phaser.Scene {
             dummy.setData('loc', currLoc);
             dummy.getData('memory').writeMyActivity('walking', currLoc);
           }
+        }
+        const wasSabotaged = dummy.getData('wasSabotaged') || false;
+        if (this.isSabotaged !== wasSabotaged) {
+          const newVision = this.isSabotaged ? 400 : 800;
+          zone.setSize(newVision, newVision);
+          if (zone.body) {
+            (zone.body as Phaser.Physics.Arcade.Body).setSize(
+              newVision,
+              newVision,
+            );
+          }
+          dummy.setData('wasSabotaged', this.isSabotaged);
         }
       });
       this.physics.overlap(
@@ -1017,10 +1040,12 @@ export default class BasicScene extends Phaser.Scene {
           const zoneOwnerName = zone.getData('zoneOwner');
           const zoneOwner = this.dummies
             .getChildren()
-            .find((b: any) => b.name === zoneOwnerName) as any;
+            .find(
+              (b: any) => b.name === zoneOwnerName,
+            ) as Phaser.Physics.Arcade.Sprite;
           //CoolDown timer
           const currTime = this.time.now;
-          const coolDownTime = 5 * 1000; //a dummy can be observed only every 5 seconds
+          const coolDownTime = 2 * 1000; //a dummy can be observed only every 5 seconds
           const blinkKey = `lastseenby_${zoneOwnerName}`;
           const lastSeen = dummy.getData(blinkKey) || 0;
 
@@ -1028,9 +1053,9 @@ export default class BasicScene extends Phaser.Scene {
             if (!zoneOwner) {
               return;
             }
-            if (zoneOwnerName !== dummy.name && !dummy.getData('isDead')) {
-              console.log(dummy.name, 'IS BEING OBSERVED BY', zoneOwnerName);
+            if (zoneOwnerName !== dummy.name) {
               const loc = this.getLocation(dummy.x, dummy.y);
+
               zoneOwner
                 ?.getData('memory')
                 .writeSight(
@@ -1039,14 +1064,26 @@ export default class BasicScene extends Phaser.Scene {
                   dummy.getData('isDead'),
                   loc,
                 );
+              if (dummy.getData('isDead')) {
+                this.commandBotToSpot(zoneOwner, dummy.x, dummy.y);
+                zoneOwner.setData('isWorking', false);
+                if (
+                  Phaser.Math.Distance.Between(
+                    zoneOwner.x,
+                    zoneOwner.y,
+                    dummy.x,
+                    dummy.y,
+                  ) < 100
+                ) {
+                  console.log(
+                    `🚨 [${zoneOwnerName}] FOUND A DEAD BODY! REPORTING!`,
+                  );
+                  this.reportTarget = true;
+                  this.executeReport(zoneOwnerName);
+                }
+              }
               dummy.setData(blinkKey, currTime);
 
-              console.log(
-                'OBSERVED BY',
-                zoneOwnerName,
-                'BLACK SHEEP',
-                dummy.name,
-              );
               // const dummyPos ={x:dummy.x, y:dummy.y}
               this.taskGroup.getChildren().forEach((t: any) => {
                 const dist = Phaser.Math.Distance.Between(
@@ -1197,6 +1234,8 @@ export default class BasicScene extends Phaser.Scene {
     } else {
       if (this.isIdle) {
         this.player.stop();
+        this.player.setTexture('player_walk');
+
         this.player.setFrame(12);
         if (this.walkSound.isPlaying) {
           this.walkSound.pause();
@@ -1204,57 +1243,136 @@ export default class BasicScene extends Phaser.Scene {
       }
     }
     this.player.body.velocity.normalize().scale(speed);
-    //STALKER FOLLOW LOGIC
+    //DUMMY MOVEMENTS
     this.dummies.getChildren().forEach((d: any) => {
+      if (!this.easystar) return;
       const dummy = d as Phaser.Physics.Arcade.Sprite;
 
-      if (dummy.getData('isFollowing')) {
-        const target = dummy.getData('followTarget');
-        const lastPingTime = dummy.getData('lastPingTime');
-        const currTime = this.time.now;
-        const INTERVAL_MS = 500;
-        if (currTime - lastPingTime > INTERVAL_MS) {
-          dummy.setData('lastPingTime', currTime);
-          this.easyStarPathTraveller(
-            dummy,
-            dummy.x,
-            dummy.y,
-            target.x,
-            target.y,
-          );
-        }
-      }
-    });
-    //DUMMY MOVEMENT
-    this.dummies.getChildren().forEach((d: any) => {
-      const dummy = d as Phaser.Physics.Arcade.Sprite;
-      if (dummy.getData('isTravelling')) {
-        const path: { x: number; y: number }[] =
-          dummy.getData('currentPath') || [];
-        if (path.length > 0) {
-          const nextStep = path[0];
-          const distance = Phaser.Math.Distance.Between(
-            dummy.x,
-            dummy.y,
-            nextStep.x,
-            nextStep.y,
-          );
-          if (distance < 50) {
-            //10px of inaccuracy is accepted
-            path.shift();
-            if (path.length === 0) {
-              dummy.body?.reset(nextStep.x, nextStep.y);
-              dummy.stop();
-              dummy.setFrame(12);
-              dummy.setData('isTravelling', false);
+      if (!dummy.getData('isDead')) {
+        //PANICKING
+        console.log('AM I PANIKING:', dummy.getData('isPanicking'));
+
+        if (dummy.getData('isPanicking')) {
+          if (!this.isMeetingCalled) {
+            dummy.setData('isWorking', false);
+            dummy.setData('isTravelling', true);
+
+            if (
+              Phaser.Math.Distance.Between(
+                dummy.x,
+                dummy.y,
+                emergency_button_loc.x,
+                emergency_button_loc.y,
+              ) < 50
+            ) {
+              console.log(
+                `🚨 [${dummy.name}] SAW ${dummy.getData('venterName')} vent`,
+              );
+              this.isMeetingCalled = true;
+              this.currentTask = 'emergency_button';
+              this.executeTasks();
             }
           } else {
-            this.physics.moveTo(dummy, nextStep.x, nextStep.y, speed);
-            dummy.play('walk', true);
-            if ((dummy.body as Phaser.Physics.Arcade.Body).velocity.x < 0)
-              dummy.setFlipX(true);
-            if ((dummy.body as Phaser.Physics.Arcade.Body).velocity.x > 0)
-              dummy.setFlipX(false);
+            console.log(`MEETING ALREADY STARTED`);
+          }
+        }
+        //STALKER FOLLOW LOGIC
+        if (dummy.getData('isFollowing')) {
+          const target = dummy.getData('followTarget');
+          const lastPingTime = dummy.getData('lastPingTime');
+          const currTime = this.time.now;
+          const INTERVAL_MS = 300;
+          if (currTime - lastPingTime > INTERVAL_MS) {
+            dummy.setData('lastPingTime', currTime);
+            this.easyStarPathTraveller(dummy, target.x, target.y);
+          }
+        }
+        //DUMMY MOVEMENT
+        if (dummy.getData('isTravelling')) {
+          const path: { x: number; y: number }[] =
+            dummy.getData('currentPath') || [];
+          if (path.length > 0) {
+            const nextStep = path[0];
+            const distance = Phaser.Math.Distance.Between(
+              dummy.x,
+              dummy.y,
+              nextStep.x,
+              nextStep.y,
+            );
+            if (distance < 50) {
+              //10px of inaccuracy is accepted
+              path.shift();
+              if (path.length === 0) {
+                dummy.body?.reset(nextStep.x, nextStep.y);
+                dummy.stop();
+                dummy.setTexture('player_walk');
+                dummy.setFrame(12);
+                dummy.setData('isTravelling', false);
+                ///STATE 2: If has job and stopped at it -> Start working
+                if (!dummy.getData('isWorking')) {
+                  const todoTasksIndex = dummy.getData('todoTasksIndex');
+                  const currTaskIndex = dummy.getData('currTaskIndex');
+                  if (todoTasksIndex && currTaskIndex < todoTasksIndex.length) {
+                    dummy.setData('isWorking', true);
+                    dummy.setData('taskStartedAt', this.time.now);
+                  }
+                }
+              }
+            } else {
+              this.physics.moveTo(dummy, nextStep.x, nextStep.y, speed);
+              dummy.play('walk', true);
+              if ((dummy.body as Phaser.Physics.Arcade.Body).velocity.x < 0)
+                dummy.setFlipX(true);
+              if ((dummy.body as Phaser.Physics.Arcade.Body).velocity.x > 0)
+                dummy.setFlipX(false);
+            }
+          }
+        }
+        //TASK QUEUE LOGIC [STATE MACHINE]
+        ///STATE 1: Idle check -> Assign a job
+        if (!dummy.getData('isWorking') && !dummy.getData('isTravelling')) {
+          const todoTasksIndex = dummy.getData('todoTasksIndex');
+          const currTaskIndex = dummy.getData('currTaskIndex');
+          if (todoTasksIndex && currTaskIndex < todoTasksIndex.length) {
+            const currTask = ALL_TASKS[todoTasksIndex[currTaskIndex]];
+            const taskCoord = this.getTaskCoordinates(currTask.name);
+            const minTime = currTask.timeRange[0],
+              maxTime = currTask.timeRange[1];
+            const currLoc = this.getLocation(dummy.x, dummy.y);
+            dummy
+              .getData('memory')
+              .writeMyActivity(`walking to do ${currTask}`, currLoc);
+            const randomDuration =
+              (Math.floor(Math.random() * (maxTime - minTime)) + minTime) *
+              1000;
+            dummy.setData('taskDuration', randomDuration);
+            this.commandBotToSpot(dummy, taskCoord.x, taskCoord.y);
+          } else if (todoTasksIndex && currTaskIndex >= todoTasksIndex.length) {
+            if (!dummy.getData('isAllTaskDone')) {
+              console.log(`[${dummy.name}]🥳 All tasks are done`);
+              dummy.setData('isAllTaskDone', true);
+            }
+          }
+        }
+        ///STATE 3: Working
+        if (dummy.getData('isWorking')) {
+          if (!this.easystar) return;
+          const todoTasksIndex = dummy.getData('todoTasksIndex');
+          const currTaskIndex = dummy.getData('currTaskIndex');
+          const currTask = ALL_TASKS[todoTasksIndex[currTaskIndex]];
+          const startedAt = dummy.getData('taskStartedAt') || 0;
+          const taskDuration = dummy.getData('taskDuration') || 0;
+          const currTime = this.time.now;
+          if (currTime - startedAt > taskDuration) {
+            console.log(`[${dummy.name}] FINISHED ITS TASK`);
+            const currLoc = this.getLocation(dummy.x, dummy.y);
+            dummy
+              .getData('memory')
+              .writeMyActivity(`${currTask.name}`, currLoc);
+            dummy.setData('isWorking', false);
+            const currTaskIndex = dummy.getData('currTaskIndex');
+            dummy.setData('currTaskIndex', currTaskIndex + 1);
+            this.totalNoOfTasks -= 1;
           }
         }
       }
