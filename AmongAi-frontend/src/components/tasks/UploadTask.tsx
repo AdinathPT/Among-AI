@@ -179,7 +179,13 @@ function CheckIcon({ color }: { color: string }) {
   );
 }
 
-export default function AmongUsUpload({ onClose }: { onClose: () => void }) {
+export default function AmongUsUpload({
+  onClose,
+  taskID,
+}: {
+  onClose: () => void;
+  taskID: string;
+}) {
   const [taskIndex, setTaskIndex] = useState(0);
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState(0);
@@ -269,7 +275,12 @@ export default function AmongUsUpload({ onClose }: { onClose: () => void }) {
     const next = taskIndex + 1;
     if (next >= totalTasks) {
       setGameOver(true);
-      setTimeout(() => onClose(), 2500);
+      setTimeout(() => {
+        if (typeof window.completedPlayerTasks === 'function') {
+          window.completedPlayerTasks(taskID);
+        }
+        onClose();
+      }, 2000);
     } else {
       setTaskIndex(next);
       setPhase('idle');

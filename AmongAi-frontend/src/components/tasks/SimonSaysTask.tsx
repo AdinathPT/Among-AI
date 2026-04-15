@@ -78,7 +78,13 @@ function CrewmateBig({ color }: { color: string }) {
 
 type Phase = 'watching' | 'input' | 'success' | 'fail' | 'gameover';
 
-export default function SimonSaysTask({ onClose }: { onClose: () => void }) {
+export default function SimonSaysTask({
+  onClose,
+  taskID,
+}: {
+  onClose: () => void;
+  taskID: string;
+}) {
   const [roundIndex, setRoundIndex] = useState(0);
   const [phase, setPhase] = useState<Phase>('watching');
   const [highlighted, setHighlighted] = useState<number | null>(null);
@@ -172,6 +178,9 @@ export default function SimonSaysTask({ onClose }: { onClose: () => void }) {
     const next = roundIndex + 1;
     if (next >= totalRounds) {
       setGameOver(true);
+      if (typeof window.completedPlayerTasks === 'function') {
+        window.completedPlayerTasks(taskID);
+      }
       onClose();
     } else {
       setRoundIndex(next);

@@ -212,7 +212,13 @@ interface RoundRecord {
   result: Result;
 }
 
-export default function SPS({ onClose }: { onClose: () => void }) {
+export default function SPS({
+  onClose,
+  taskID,
+}: {
+  onClose: () => void;
+  taskID: string;
+}) {
   const [round, setRound] = useState(1);
   const [playerScore, setPlayerScore] = useState(0);
   const [cpuScore, setCpuScore] = useState(0);
@@ -249,6 +255,9 @@ export default function SPS({ onClose }: { onClose: () => void }) {
       if (round >= totalRounds) {
         setGameOver(true);
         setTimeout(() => {
+          if (typeof window.completedPlayerTasks === 'function') {
+            window.completedPlayerTasks(taskID);
+          }
           onClose();
         }, 2000);
       }
@@ -259,6 +268,9 @@ export default function SPS({ onClose }: { onClose: () => void }) {
     if (round >= totalRounds) {
       setGameOver(true);
       setTimeout(() => {
+        if (typeof window.completedPlayerTasks === 'function') {
+          window.completedPlayerTasks(taskID);
+        }
         onClose();
       }, 2000);
     }

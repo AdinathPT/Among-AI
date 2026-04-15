@@ -113,7 +113,13 @@ function CrewmateBig({ color }: { color: string }) {
 type CellState = 'X' | 'O' | null;
 type FeedbackType = 'win' | 'lose' | 'hint' | null;
 
-export default function TicTacToe({ onClose }: { onClose: () => void }) {
+export default function TicTacToe({
+  onClose,
+  taskID,
+}: {
+  onClose: () => void;
+  taskID: string;
+}) {
   const [current, setCurrent] = useState(0);
   const [scoreX, setScoreX] = useState(0);
   const [scoreO, setScoreO] = useState(0);
@@ -171,6 +177,9 @@ export default function TicTacToe({ onClose }: { onClose: () => void }) {
     if (next >= rounds.length) {
       setDone(true);
       setTimeout(() => {
+        if (typeof window.completedPlayerTasks === 'function') {
+          window.completedPlayerTasks(taskID);
+        }
         onClose();
       }, 2000);
     } else {

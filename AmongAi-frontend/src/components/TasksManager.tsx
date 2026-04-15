@@ -6,29 +6,29 @@ import UploadTask from './tasks/UploadTask';
 import SimonSaysTask from './tasks/SimonSaysTask';
 interface TYPEStasksManager {
   isTaskOpen: boolean;
-  types: string;
+  taskID: string;
   onClose: () => void;
 }
 
 export default function TaskManager({
   isTaskOpen,
-  types,
+  taskID,
   onClose,
 }: TYPEStasksManager) {
   const TaskComp: Record<string, JSX.Element> = {
-    cardTask: <AnimalTask onClose={onClose} />,
-    eleTask: <XOTask onClose={onClose} />,
-    reactorTask: <SPSTask onClose={onClose} />,
-    NavTask: <SimonSaysTask onClose={onClose} />,
-    chairTask: <UploadTask onClose={onClose} />,
+    cardTask: <AnimalTask onClose={onClose} taskID={taskID} />,
+    eleTask: <XOTask onClose={onClose} taskID={taskID} />,
+    reactorTask: <SPSTask onClose={onClose} taskID={taskID} />,
+    navTask: <SimonSaysTask onClose={onClose} taskID={taskID} />,
+    chairTask: <UploadTask onClose={onClose} taskID={taskID} />,
   };
   if (!isTaskOpen) return null;
   return (
     <div className="absolute inset-0 z-50 bg-black/80 flex items-center justify-center backdrop-blur-sm py-20 ">
       <div onClick={onClose} className="absolute inset-0 z-0" />
-      {TaskComp[types] || (
+      {TaskComp[taskID] || (
         <div className="text-white text-2xl font-bold">
-          Task "{types}" not found!
+          Task "{taskID}" not found!
         </div>
       )}
     </div>

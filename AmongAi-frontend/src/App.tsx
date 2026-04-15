@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { configCafe } from './game/BasicScene';
 import MeetingModal, { type PlayerData } from './components/MeetingModal';
 import TaskManager from './components/TasksManager';
-import getBotResponse from './services/AIService';
+import GameOverModal from './components/GameOverModal';
 declare global {
   interface Window {
     game: Phaser.Game;
@@ -11,6 +11,10 @@ declare global {
     triggerTask: (taskID: string) => void;
     toggleKeyboard: (isEnabled: boolean) => void;
     resumePhaserGame: () => void;
+    completedPlayerTasks: (taskID: string) => void;
+    triggerGameOver: (winner: 'crewmate' | 'impostor') => void;
+    processEjection: (ejectedId: string | null) => void;
+    requestSusVote: (dummyName: string, aliveIDS: string[]) => string;
   }
 }
 
@@ -19,15 +23,16 @@ function App() {
   const [isTaskOpen, setIsTaskOpen] = useState<boolean>(false);
   const [meetingData, setMeetingData] = useState<PlayerData[]>([]);
   const [taskID, setTaskID] = useState<string>('animal');
-  const testAI = async () => {
-    const history = [
-      'Gemini: I saw gpt near the body',
-      'claude: It is definetly sus.',
-    ];
-    console.log('[Asking the AI...]');
-    const response = await getBotResponse('Ollama', 'imposter', history);
-    console.log('AI (olmma) says:', response);
-  };
+  const [winner, setWinner] = useState<'crewmate' | 'impostor' | null>(null);
+  // const testAI = async () => {
+  //   const history = [
+  //     'Gemini: I saw gpt near the body',
+  //     'claude: It is definetly sus.',
+  //   ];
+  //   console.log('[Asking the AI...]');
+  //   const response = await getBotResponse('Ollama', 'imposter', history);
+  //   console.log('AI (olmma) says:', response);
+  // };
   // useEffect(() => {
   //   testAI();
   // }, []);
@@ -43,28 +48,18 @@ function App() {
       setTaskID(taskID);
       setIsTaskOpen(true);
     };
+    window.triggerGameOver = (winningTeam) => {
+      setWinner(winningTeam);
+    };
 
     return () => {
       game.destroy(true);
     };
   }, []);
+
   const handleCloseMeeting = () => {
     setIsOpen(false);
-    const phaserGame = window.game;
-    if (typeof window.resumePhaserGame === 'function') {
-      // 2. Fire the Phaser function!
-      window.resumePhaserGame();
-    }
-    if (phaserGame) {
-      const scene = phaserGame.scene.getScene('BasicScene');
-
-      if (scene) {
-        scene.scene.resume();
-        scene.physics.resume();
-      }
-    }
   };
-
   const handleCloseTask = () => {
     setIsTaskOpen(false);
     const phaserGame = window.game;
@@ -90,9 +85,10 @@ function App() {
       <TaskManager
         key={isTaskOpen ? 'task-active' : 'task-closed'}
         isTaskOpen={isTaskOpen}
-        types={taskID}
+        taskID={taskID}
         onClose={handleCloseTask}
       />
+      <GameOverModal winner={winner} />
     </div>
   );
 }

@@ -123,7 +123,13 @@ function randInt(start: number, end: number) {
   return Math.floor(Math.random() * (end - start)) + start;
 }
 
-export default function AnimalQuiz({ onClose }: { onClose: () => void }) {
+export default function AnimalQuiz({
+  onClose,
+  taskID,
+}: {
+  onClose: () => void;
+  taskID: string;
+}) {
   const [current, setCurrent] = useState(randInt(0, rounds.length));
   const [level, setLevel] = useState(0);
   const [score, setScore] = useState(0);
@@ -158,6 +164,9 @@ export default function AnimalQuiz({ onClose }: { onClose: () => void }) {
         setFeedback(null);
       } else {
         setDone(true);
+        if (typeof window.completedPlayerTasks === 'function') {
+          window.completedPlayerTasks(taskID);
+        }
         onClose();
       }
     }, 1400);

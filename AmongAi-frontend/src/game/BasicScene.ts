@@ -9,6 +9,36 @@ interface TYPEtask {
   name: string;
   timeRange: number[];
 }
+// type TYPELocations =
+//   | 'cafeteria'
+//   | 'upper engine'
+//   | 'lower engine'
+//   | 'between upper and lower engine'
+//   | 'reactor'
+//   | 'security'
+//   | 'medbay'
+//   | 'between engine and cafeteria'
+//   | 'weapons'
+//   | 'o2'
+//   | 'nav'
+//   | 'between nav and o2'
+//   | 'shield'
+//   | 'between storage and admin'
+//   | 'communication'
+//   | 'between storage and shield'
+//   | 'storage'
+//   | 'admin'
+//   | 'storage (right)'
+//   | 'storage (left)'
+//   | 'storage (lower)'
+//   | 'between shield and nav'
+//   | 'between lower engine and electrical'
+//   | 'between electrical and storage'
+//   | 'electrical'
+//   | 'lower engine (right)'
+//   | 'upper engine (lower)'
+//   | 'upper engine (right)'
+//   | 'lower engine (upper)';
 const TILE_SIZE = 25;
 const ALL_TASKS: TYPEtask[] = [
   { name: 'cardTask', timeRange: [10, 15] },
@@ -44,10 +74,9 @@ export default class BasicScene extends Phaser.Scene {
 
   // ZONES
   killZone!: Phaser.GameObjects.Zone;
-  interactZone!: Phaser.GameObjects.Zone;
+  playerInteractZone!: Phaser.GameObjects.Zone;
   visibleZones!: Phaser.Physics.Arcade.Group;
-  //TASKS
-  totalNoOfTasks: number = 4 * 5;
+  dummiesInteractZones!: Phaser.Physics.Arcade.Group;
   // CURRENT STATE
   isIdle: boolean = true;
   isMeetingCalled: boolean = false;
@@ -55,12 +84,16 @@ export default class BasicScene extends Phaser.Scene {
   reportTarget: boolean = false;
   currentTask: string | null = null;
   targetVent: string | null = null;
-  nextKillTime: number = 0;
   nextSabotageTime: number = 0;
   currentTarget: any = null;
-
+  isDummyImpostor: boolean = false;
   currVentPos: number[] = [];
+  //PROGRESS
+  totalNoOfTasks: number = 4 * 5;
+  progressBarBg!: Phaser.GameObjects.Rectangle;
+  progressBarFill!: Phaser.GameObjects.Rectangle;
 
+  taskListGroup!: Phaser.GameObjects.Group;
   uiGroup!: Phaser.GameObjects.Group;
   cursors!: any;
   wasd!: any;
@@ -186,51 +219,81 @@ export default class BasicScene extends Phaser.Scene {
       //priority for SPACE: vent > use > sabotage
       this.uiGroup.add(
         this.createButton(sw - 530, sh - 130, 'btn_sabotage', 'SPACE', () =>
-          this.executeSabotage(),
+          this.executeSabotage(this.player),
         ),
       );
       this.uiGroup.add(
         this.createButton(sw - 220, sh - 280, 'btn_kill', 'Q', () =>
-          this.executeKill(),
+          this.executeKill(this.player, this.currentTarget),
         ),
       );
       this.uiGroup.add(
         this.createButton(sw - 380, sh - 130, 'btn_vent', 'SPACE', () =>
-          this.executeVent(),
+          this.executeVent(
+            this.player,
+            this.currVentPos[0],
+            this.currVentPos[1],
+            this.targetVent!,
+          ),
         ),
       );
     }
+    //[Progress Bar]
+    this.progressBarBg = this.add
+      .rectangle(sw - 350, 100, 300, 30, 0x444444) // FIX: Visible gray background
+      .setScrollFactor(0)
+      .setDepth(900)
+      .setStrokeStyle(4, 0xffffff);
+    this.progressBarBg = this.add
+      .rectangle(sw - 350, 100, 300, 30, 0x000000)
+      .setScrollFactor(0)
+      .setDepth(1000)
+      .setStrokeStyle(4, 0x333333);
+    this.progressBarFill = this.add
+      .rectangle(sw - 500, 100, 0, 30 - 4, 0x00ff00)
+      .setScrollFactor(0)
+      .setDepth(1001);
+    this.renderTaskList();
+    // this.uiGroup.add(this.progressBarBg);
+    // this.uiGroup.add(this.progressBarFill);
   }
 
   // --- GAMEPLAY ACTIONS ---
-  executeKill() {
-    if (this.time.now < this.nextKillTime || !this.currentTarget) return;
+  executeKill(
+    killer: Phaser.Physics.Arcade.Sprite,
+    victim: Phaser.Physics.Arcade.Sprite,
+  ) {
+    const nextKillTime = killer.getData('nextKillTime') || 0;
+    if (this.time.now < nextKillTime || !victim || victim.getData('isDead'))
+      return;
     console.log(
-      '[ALL THE MEMORIES]:',
-      this.currentTarget.getData('memory').readSight(),
-      this.currentTarget.getData('memory').readOthersActivity(),
-      this.currentTarget.getData('memory').readMyActivity(),
+      `[ALL THE MEMORIES OF ${victim.name.toUpperCase()}]:`,
+      victim.getData('memory').readSight(),
+      victim.getData('memory').readOthersActivity(),
+      victim.getData('memory').readMyActivity(),
     );
 
-    this.currentTarget.setData('isDead', true);
-    this.currentTarget.body.setVelocity(0, 0);
-
     // 2. LOBOTOMIZE THE AI (Stop pathfinding)
-    this.currentTarget.setData('isTravelling', false);
-    this.currentTarget.setData('currentPath', []);
+    victim.setData('isDead', true);
+    this.reallocateTasks(victim);
+    (victim.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+    victim.setData('isTravelling', false);
+    victim.setData('currentPath', []);
 
     // 4. Stop current animation and play 'die'
-    this.currentTarget.stop(); // Calling .stop() with no args halts everything
-    this.currentTarget.play('die');
+    victim.stop(); // Calling .stop() with no args halts everything
+    victim.play('die');
     this.sound.play('kill', { volume: 0.5 });
-    this.player.setPosition(this.currentTarget.x, this.currentTarget.y);
-    this.currentTarget = null;
-    this.nextKillTime = this.time.now + 10 * 1000;
+    this.broadcastKill(killer.name, victim.name, victim.x, victim.y);
+    killer.setPosition(victim.x, victim.y);
+    killer.setData('nextKillTime', this.time.now + 10 * 1000); //10 second cooldown time
+    killer.setData('currentTarget', null);
+    if (killer.name === this.player.name) this.currentTarget = null;
+    this.checkWinCondition();
   }
-
   executeReport(reportedBy: string) {
     // Only allow report if there's a body OR we are at the emergency button
-    if (!this.reportTarget && this.currentTask !== 'emergency_button') return;
+    if (!this.reportTarget && !this.isMeetingCalled) return;
 
     const tableX = 2250,
       tableY = 500;
@@ -246,6 +309,9 @@ export default class BasicScene extends Phaser.Scene {
     Phaser.Actions.PlaceOnCircle(
       survivors,
       new Phaser.Geom.Circle(tableX, tableY, 180),
+    );
+    this.broadcastMajorEvent(
+      `Emergency Meeting / Dead Body reported by ${reportedBy.toUpperCase()}`,
     );
     this.physics.pause();
     this.scene.pause();
@@ -266,7 +332,9 @@ export default class BasicScene extends Phaser.Scene {
     console.log('[TASKS]', this.currentTask);
 
     if (this.currentTask === 'emergency_button') {
+      this.isMeetingCalled = true; // FIX: Lock the meeting state immediately!
       this.sound.play('emergencyMeeting', { volume: 0.3 });
+
       setTimeout(() => {
         this.executeReport(this.player.name);
       }, 1500);
@@ -276,53 +344,81 @@ export default class BasicScene extends Phaser.Scene {
 
       if ((window as any).triggerTask) {
         (window as any).triggerTask(this.currentTask);
-        this.totalNoOfTasks -= 1; //TODO: MAKE IT SUCH THAT ONLY END OF TASK THIS IS UPDATED
       }
     }
   }
-  executeVent() {
-    if (!this.targetVent || this.playerRole !== 'impostor') return;
-    this.isIdle = false;
-
-    let targetVentX: number = 2679; // vent 1 coord for vent 14 to trace back
-    let targetVentY: number = 593;
-    let continueSearch: boolean = true;
-    const currVentX = this.currVentPos[0],
-      currVentY = this.currVentPos[1];
-    if (continueSearch) {
-      this.ventGroup.getChildren().forEach((vent: any) => {
-        if (vent.getData('currVent') === this.targetVent) {
-          targetVentX = vent.x;
-          targetVentY = vent.y;
-          continueSearch = false;
-        }
-      });
+  executeVent(
+    ventingSprite: Phaser.Physics.Arcade.Sprite,
+    startX: number,
+    startY: number,
+    targetVentName: string,
+  ) {
+    let exitX = 0;
+    let exitY = 0;
+    // ADD THIS: lock player movement during the vent
+    if (ventingSprite.name === this.player.name) {
+      this.isIdle = false;
     }
-    this.player.setPosition(currVentX, currVentY);
+
+    const targetVent = this.ventGroup
+      .getChildren()
+      .find(
+        (v: any) => v.getData('currVent') === targetVentName,
+      ) as Phaser.GameObjects.Zone;
+
+    if (targetVent) {
+      exitX = targetVent.x;
+      exitY = targetVent.y;
+    } else {
+      exitX = 2646;
+      exitY = 580;
+      console.warn(
+        `[VENT] Could not find exit vent: ${targetVentName} --> return to vent1`,
+      );
+      // return;
+    }
+
+    ventingSprite.setPosition(startX, startY);
     this.sound.play('vent');
+
     setTimeout(() => {
-      this.player.play('vent');
-      // this.player.y += 10;
+      ventingSprite.play('vent');
     }, 120);
-    //Announce the vent to the visible range
-    this.broadcastVent(this.player.name, currVentX, currVentY); //TODO:CHANGE THE this.player.name -> for all including dummies this should work
     setTimeout(() => {
-      this.player.setPosition(targetVentX, targetVentY);
-      this.isIdle = true;
+      // ventingSprite.setAlpha(0);
+    }, 500);
+    console.log(ventingSprite);
+
+    this.broadcastVent(ventingSprite.name, startX, startY);
+
+    setTimeout(() => {
+      ventingSprite.setPosition(exitX, exitY);
+      ventingSprite.setAlpha(1);
+      // ventingSprite.play('vent');
+
+      console.warn(ventingSprite.name, this.player.name);
+      if (ventingSprite.name === this.player.name) {
+        this.isIdle = true; // Unlock player movement
+      } else {
+        ventingSprite.setData('isCurrentlyVenting', false);
+      }
     }, 1000);
   }
-  executeSabotage() {
-    if (this.time.now < this.nextSabotageTime) return;
+  executeSabotage(impostor: Phaser.Physics.Arcade.Sprite) {
+    const nextSabotageTime = impostor.getData('nextSabotageTime') || 0;
+    if (this.time.now < nextSabotageTime) return;
+    console.log(`🚨 [SABOTAGE] ${impostor.name} cut the lights!`);
     this.isSabotaged = true;
     this.toggleLight(false);
     this.sound.play('sabotage', { volume: 0.5, loop: true });
-    this.nextSabotageTime = this.time.now + 40 * 1000;
-
+    impostor.setData('nextSabotageTime', this.time.now + 25 * 1000);
+    this.broadcastMajorEvent('The lights were sabotaged');
     this.time.delayedCall(10 * 1000, () => {
       this.isSabotaged = false;
       this.toggleLight(true);
       this.sound.stopByKey('sabotage');
     });
+    // this.broadcastMajorEvent('The lights were fixed');
   }
   //---ACTIONS HELPERS ---
   toggleLight(isOn: boolean) {
@@ -347,7 +443,7 @@ export default class BasicScene extends Phaser.Scene {
   broadcastVent(venterName: string, ventX: number, ventY: number) {
     this.visibleZones.getChildren().forEach((z: any) => {
       const zone = z as Phaser.GameObjects.Zone;
-      const observerName = zone.getData('zoneOwner');
+      const observerName = zone.getData('visibleZoneOwner');
       const body = zone.body as Phaser.Physics.Arcade.Body;
 
       // 1. Skip if the observer is the one venting
@@ -380,13 +476,59 @@ export default class BasicScene extends Phaser.Scene {
           observerSprite.setData('venterName', venterName);
           console.log(observerSprite);
 
-          observerSprite.getData('memory').writeSight(
-            observerName,
-            venterName,
-            false, // Not dead
-            `VENTING in ${room}`,
-            this.time.now,
+          observerSprite
+            .getData('memory')
+            .writeAllegation(venterName, 'VENTING', room);
+        }
+      }
+    });
+  }
+  broadcastKill(
+    killerName: string,
+    victimName: string,
+    killX: number,
+    killY: number,
+  ) {
+    this.visibleZones.getChildren().forEach((z: any) => {
+      const zone = z as Phaser.GameObjects.Zone;
+      const observerName = zone.getData('visibleZoneOwner');
+      const body = zone.body as Phaser.Physics.Arcade.Body;
+
+      // Skip if the observer is the killer, or if the observer is the victim
+      if (observerName === killerName || observerName === victimName) return;
+
+      const isInside =
+        killX >= body.x &&
+        killX <= body.right &&
+        killY >= body.y &&
+        killY <= body.bottom;
+
+      if (isInside) {
+        const observerSprite = this.dummies
+          .getChildren()
+          .find((d: any) => d.name === observerName) as any;
+
+        if (observerSprite && !observerSprite.getData('isDead')) {
+          const room = this.getLocation(killX, killY);
+
+          console.log(
+            `🚨 [CAUGHT]: ${observerName} saw ${killerName} MURDER ${victimName}!`,
           );
+
+          // Log the Hard Violation
+          observerSprite
+            .getData('memory')
+            .writeAllegation(killerName, 'KILLING', room);
+
+          // Panic and run to the button!
+          this.commandBotToSpot(
+            observerSprite,
+            emergency_button_loc.x,
+            emergency_button_loc.y,
+          );
+          observerSprite.setData('isWorking', false);
+          observerSprite.setData('isPanicking', true);
+          observerSprite.setData('venterName', killerName); // Reusing this variable for the panic alert
         }
       }
     });
@@ -448,7 +590,6 @@ export default class BasicScene extends Phaser.Scene {
           }));
           console.log(
             `[AI] ${dummy.name} found a path in ${worldPath.length} steps`,
-            worldPath,
           );
           dummy.setData('currentPath', worldPath);
           dummy.setData('isTravelling', true);
@@ -456,6 +597,229 @@ export default class BasicScene extends Phaser.Scene {
       },
     );
     this.easystar.calculate();
+  }
+  //[PROGRESS BAR]
+  updateTaskProgress() {
+    let totalTasks = 0;
+    let completedTasks = 0;
+    if (this.playerRole === 'crewmate') {
+      totalTasks += this.player.getData('todoTasksIndex')?.length || 0;
+      completedTasks += this.player.getData('completedTasks')?.length || 0;
+    }
+    this.dummies.getChildren().forEach((d: any) => {
+      const dummy = d as Phaser.Physics.Arcade.Sprite;
+      if (dummy.getData('role') === 'crewmate') {
+        totalTasks += dummy.getData('todoTasksIndex')?.length || 0;
+        completedTasks += dummy.getData('currTaskIndex') || 0;
+      }
+    });
+    if (totalTasks === 0) return;
+    const percentage = completedTasks / totalTasks;
+    const maxBarWidth = 300;
+    console.warn(maxBarWidth, percentage);
+
+    this.tweens.add({
+      targets: this.progressBarFill,
+      width: maxBarWidth * percentage,
+      duration: 500,
+      ease: 'Sine.easeOut',
+    });
+    if (percentage >= 1) {
+      console.log('👑 CREWMATES WON THE MATCH');
+      if ((window as any).triggerGameOver) {
+        (window as any).triggerGameOver('crewmate');
+      }
+    }
+    this.renderTaskList();
+  }
+  reallocateTasks(victim: Phaser.Physics.Arcade.Sprite) {
+    // 1. Universal Role Check (Fixes the bug where the Player was ignored)
+    const victimRole =
+      victim === this.player ? this.playerRole : victim.getData('role');
+    if (victimRole !== 'crewmate') return;
+
+    // 2. Extract remaining tasks based on WHO died
+    let remainingTasks: number[] = [];
+    const todo = victim.getData('todoTasksIndex') || [];
+
+    if (victim.name === this.player.name) {
+      // It's the Player! Filter out the strings they already saved in their array
+      const completedNames = victim.getData('completedTasks') || [];
+      remainingTasks = todo.filter((taskIndex: number) => {
+        const taskName = ALL_TASKS[taskIndex].name;
+        return !completedNames.includes(taskName); // Keep it if it's NOT completed
+      });
+    } else {
+      // It's a Dummy! Slice the array from their current integer index
+      const curr = victim.getData('currTaskIndex') || 0;
+      remainingTasks = todo.slice(curr);
+    }
+
+    if (remainingTasks.length === 0) return;
+
+    console.log(
+      `📋 Reallocating ${remainingTasks.length} tasks from dead ${victim.name}`,
+    );
+
+    // 3. Find alive workers
+    const aliveWorkers: Phaser.Physics.Arcade.Sprite[] = [];
+    if (this.playerRole === 'crewmate' && !this.player.getData('isDead')) {
+      aliveWorkers.push(this.player);
+    }
+    this.dummies.getChildren().forEach((d: any) => {
+      const dummy = d as Phaser.Physics.Arcade.Sprite;
+      if (dummy.getData('role') === 'crewmate' && !dummy.getData('isDead')) {
+        aliveWorkers.push(dummy);
+      }
+    });
+
+    if (aliveWorkers.length === 0) return; // Impostors win
+
+    // 4. Distribute tasks
+    remainingTasks.forEach((taskIndex: number, i: number) => {
+      const unluckyWorker = aliveWorkers[i % aliveWorkers.length];
+      const theirTasks = unluckyWorker.getData('todoTasksIndex') || [];
+
+      theirTasks.push(taskIndex);
+
+      unluckyWorker.setData('todoTasksIndex', theirTasks);
+      unluckyWorker.setData('isAllTaskDone', false); // Wake them up if they were done!
+    });
+
+    // 5. Wipe the victim's memory completely
+    victim.setData('todoTasksIndex', []);
+    if (victim.name === this.player.name) {
+      victim.setData('completedTasks', []);
+    } else {
+      victim.setData('currTaskIndex', 0);
+    }
+
+    // 6. Redraw the UI
+    this.renderTaskList();
+  }
+  renderTaskList() {
+    if (this.taskListGroup) {
+      this.taskListGroup.clear(true, true);
+    } else {
+      this.taskListGroup = this.add.group();
+    }
+    if (this.playerRole === 'impostor' || this.player.getData('isDead')) return;
+
+    const todo = this.player.getData('todoTasksIndex') || [];
+    const completed = this.player.getData('completedTasks') || [];
+
+    const startX = this.cameras.main.width - 350;
+    let startY = 150;
+    console.warn('todo', todo, 'curr', completed);
+    todo.forEach((taskIndex: number) => {
+      const taskName = ALL_TASKS[taskIndex].name;
+      const isCompleted = completed.includes(taskName);
+
+      const textColor = isCompleted ? '#00ff00' : '#ff4444';
+      const prefix = isCompleted ? '✓ ' : '☐ ';
+
+      const taskText = this.add
+        .text(startX, startY, prefix + taskName, {
+          fontSize: '18px',
+          fontFamily: 'Orbitron',
+          color: textColor,
+          fontStyle: 'bold',
+        })
+        .setScrollFactor(0)
+        .setDepth(400);
+      if (isCompleted) taskText.setAlpha(0.4);
+      this.taskListGroup.add(taskText);
+      startY += 25;
+    });
+  }
+  checkWinCondition() {
+    let aliveCrew: number = 0;
+
+    if (!this.player.getData('isDead')) {
+      if (this.playerRole === 'crewmate') {
+        aliveCrew++;
+      }
+    } else {
+      this.player.setVelocity(0); // If dead, do absolutely nothing!
+    }
+    this.dummies.getChildren().forEach((d: any) => {
+      const dummy = d as Phaser.Physics.Arcade.Sprite;
+      if (!dummy.getData('isDead')) {
+        if (dummy.getData('role') === 'crewmate') {
+          aliveCrew++;
+        }
+      }
+    });
+    if (aliveCrew === 0) {
+      console.log('🔪 IMPOSTORS WIN!');
+      this.physics.pause(); // Freeze the game
+
+      if ((window as any).triggerGameOver) {
+        (window as any).triggerGameOver('impostor');
+      }
+    }
+    if (this.player.getData('isDead')) {
+      this.physics.pause(); // Freeze the game
+
+      if ((window as any).triggerGameOver) {
+        (window as any).triggerGameOver(
+          this.playerRole === 'impostor' ? 'crewmate' : 'crewmate',
+        );
+      }
+    }
+  }
+  processEjection(ejectedId: string | null) {
+    if (!ejectedId) {
+      console.log('⚖️ TRIBUNAL: No one was ejected. (Tie or Skipped)');
+      return;
+    }
+
+    console.log(`⚖️ TRIBUNAL: ${ejectedId.toUpperCase()} was ejected!`);
+
+    // 1. Destroy Human Player Physics
+    if (this.player.name === ejectedId) {
+      this.player.setData('isDead', true);
+      this.player.setVisible(false);
+      if (this.player.body) this.player.body.enable = false; // Turn off physics!
+
+      this.killZone.destroy();
+      this.playerInteractZone.destroy();
+
+      this.reallocateTasks(this.player);
+    }
+    // 2. Destroy AI Dummy Physics
+    else {
+      const dummy = this.dummies
+        .getChildren()
+        .find((d: any) => d.name === ejectedId) as Phaser.Physics.Arcade.Sprite;
+
+      if (dummy) {
+        dummy.setData('isDead', true);
+        dummy.setVisible(false);
+        if (dummy.body) dummy.body.enable = false; // Turn off physics!
+
+        // Destroy their zones and erase the references to save computation
+        const vz = dummy.getData('visibleZone');
+        if (vz) {
+          vz.destroy();
+          dummy.setData('visibleZone', null);
+        }
+
+        const iz = dummy.getData('interactZone');
+        if (iz) {
+          iz.destroy();
+          dummy.setData('interactZone', null);
+        }
+
+        dummy.setData('isWorking', false);
+        dummy.setData('isTravelling', false);
+        dummy.setData('currentPath', []);
+
+        this.reallocateTasks(dummy);
+      }
+    }
+
+    this.checkWinCondition();
   }
   //GETS
   getPlayerDataForMeeting(): PlayerData[] {
@@ -554,7 +918,30 @@ export default class BasicScene extends Phaser.Scene {
     }
     console.log('[GRID VISUAL]\n' + gridDebug);
   }
+  broadcastMajorEvent(eventName: string) {
+    // 1. Give it to the human player
+    if (!this.player.getData('isDead')) {
+      this.player.getData('memory')?.writeMajorEvent(eventName);
+    }
 
+    // 2. Give it to all alive dummies
+    this.dummies.getChildren().forEach((d: any) => {
+      const dummy = d as Phaser.Physics.Arcade.Sprite;
+      if (!dummy.getData('isDead')) {
+        dummy.getData('memory')?.writeMajorEvent(eventName);
+      }
+    });
+  }
+  requestSusVote(dummyName: string, aliveIds: string[]): string {
+    const dummy = this.dummies
+      .getChildren()
+      .find((d: any) => d.name === dummyName) as Phaser.Physics.Arcade.Sprite;
+    if (dummy) {
+      const memory = dummy.getData('memory') as Memory;
+      return memory.getVoteDecision(aliveIds);
+    }
+    return 'skip';
+  }
   //COMMANDS
   commandBotToSpot(
     dummy: Phaser.Physics.Arcade.Sprite,
@@ -563,7 +950,7 @@ export default class BasicScene extends Phaser.Scene {
   ) {
     // this.gridDebug();
     console.log(`[${dummy.name}] wants to go to ${targetX}, ${targetY}`);
-
+    dummy.setData('isTravelling', true);
     this.easyStarPathTraveller(dummy, targetX, targetY);
   }
   commandBotToFollow(
@@ -617,9 +1004,64 @@ export default class BasicScene extends Phaser.Scene {
     this.isMeetingCalled = false; // Unlock the button
     this.reportTarget = false;
     this.currentTask = null;
+    // Clean Human Player Body
+    if (this.player.getData('isDead')) {
+      this.player.setData('isSwept', true);
+      this.player.setVisible(false);
+      if (this.player.body) this.player.body.enable = false;
+    }
 
+    // Clean AI Bodies & Zones
+    this.dummies.getChildren().forEach((d: any) => {
+      const dummy = d as Phaser.Physics.Arcade.Sprite;
+      dummy.setData('isPanicking', false);
+
+      if (dummy.getData('isDead') && !dummy.getData('isSwept')) {
+        dummy.setData('isSwept', true);
+        dummy.setVisible(false);
+        if (dummy.body) dummy.body.enable = false;
+
+        // Destroy the zones so the engine stops checking overlaps!
+        const vz = dummy.getData('visibleZone');
+        if (vz) {
+          vz.destroy();
+          dummy.setData('visibleZone', null);
+        }
+
+        const iz = dummy.getData('interactZone');
+        if (iz) {
+          iz.destroy();
+          dummy.setData('interactZone', null);
+        }
+      }
+    });
+    // FIX: Flush "Sticky Keys" so the player doesn't run off by themselves!
+    if (this.input.keyboard) {
+      this.input.keyboard.resetKeys();
+    }
     this.scene.resume();
     this.physics.resume();
+  }
+  completePlayerTask(completedTaskID: string) {
+    // <--- Now it accepts the ID!
+    // 1. Grab the array of finished tasks (or make a new one)
+    const completed = this.player.getData('completedTasks') || [];
+
+    // 2. Prevent duplicates (just in case they spam the button)
+    if (!completed.includes(completedTaskID)) {
+      completed.push(completedTaskID);
+      this.player.setData('completedTasks', completed);
+    }
+
+    // 3. Update UI and Unpause
+    this.updateTaskProgress();
+    this.currentTask = null;
+    this.scene.resume();
+    this.physics.resume();
+
+    console.log(
+      `[PLAYER] Finished ${completedTaskID}! (${completed.length}/4)`,
+    );
   }
   // --- PHASER LIFECYCLE ---
 
@@ -663,13 +1105,19 @@ export default class BasicScene extends Phaser.Scene {
   create() {
     //---REACTJS BRIDGE---
     //EXPOSE MEMBERS TO REACT
-    (window as any).resumePhaseGame = this.resumeGameAfterMeeting.bind(this);
+    (window as any).resumePhaserGame = this.resumeGameAfterMeeting.bind(this);
+    (window as any).completedPlayerTasks = this.completePlayerTask.bind(this);
+    (window as any).processEjection = this.processEjection.bind(this);
+    (window as any).requestSusVote = this.requestSusVote.bind(this);
+
     // 1. ENVIRONMENT & MAP
     const map = this.add.image(0, 0, 'map_Skeld').setOrigin(0, 0);
     this.physics.world.setBounds(0, 0, map.width, map.height);
     const mapData = this.cache.json.get('level_design');
     const walls = this.physics.add.staticGroup();
-
+    this.time.delayedCall(100, () => {
+      this.updateTaskProgress();
+    });
     this.walkSound = this.sound.add('walk', {
       loop: true,
     });
@@ -783,7 +1231,7 @@ export default class BasicScene extends Phaser.Scene {
     this.playerDot = this.add.circle(200, 80, 2, 0x00ff00);
     this.minimapContainer.add(this.playerDot);
 
-    // 4. PLAYER & DUMMIES
+    //  [PLAYER] & [DUMMIES]
     this.player = this.physics.add
       .sprite(2460, 480, 'player_walk')
       .setScale(0.3)
@@ -791,7 +1239,9 @@ export default class BasicScene extends Phaser.Scene {
     this.player.body.setSize(50, 50).setOffset(120, 150);
     this.player.name = 'CHRIS';
     this.player.setData('isDead', false);
-
+    this.player.setData('nextKillTime', 0);
+    this.player.setData('currTaskIndex', 0);
+    this.player.setData('nextSabotageTime', 0);
     const renderer = this.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
     renderer.pipelines.addPostPipeline('RGBMask', RGBMaskPipeline);
 
@@ -799,28 +1249,34 @@ export default class BasicScene extends Phaser.Scene {
     const dum1 = this.dummies.create(2500, 480, 'player_walk');
     this.applyColorPreset(dum1, 'yellow');
     dum1.name = 'yellow';
-    dum1.setData('todoTasksIndex', [0, 2, 4]);
+    this.isDummyImpostor = true;
+    dum1.setData('role', 'crewmate');
+    dum1.setData('todoTasksIndex', [0, 2, 4, 1, 3]);
     dum1.setData('isAllTaskDone', false);
     const dum2 = this.dummies.create(2100, 480, 'player_walk');
     this.applyColorPreset(dum2, 'pink');
     dum2.name = 'pink';
-    dum2.setData('todoTasksIndex', [0, 3]);
+    dum2.setData('todoTasksIndex', [1, 0, 3, 2, 4]);
     dum1.setData('isAllTaskDone', false);
+    dum2.setData('role', 'crewmate');
 
-    this.dummies.children.iterate((dumm: any) => {
-      dumm.setData('role', 'crewmate');
-      dumm.setData('isDead', false);
+    this.dummies.children.iterate((dummy: any) => {
+      dummy.setData('isDead', false);
       //follow
-      dumm.setData('isFollowing', false);
-      dumm.setData('followTarget', []);
-      dumm.setData('lastPingTime', null);
+      dummy.setData('isFollowing', false);
+      dummy.setData('followTarget', []);
+      dummy.setData('lastPingTime', null);
       //task
-      dumm.setData('isWorking', false);
-      dumm.setData('currTaskIndex', 0); // currTaskIndex --index of--> todoTasksIndex --index of--> ALL_TASKS
+      dummy.setData('isWorking', false);
+      dummy.setData('completedTasks', []);
+      dummy.setData('currTaskIndex', 0); // currTaskIndex --index of--> todoTasksIndex --index of--> ALL_TASKS
+      //kill & sabotage
+      dummy.setData('nextKillTime', 0);
+      dummy.setData('nextSabotageTime', 0);
       //memory
-      dumm.setData('memory', new Memory());
-      dumm.setScale(0.3).setCollideWorldBounds(true);
-      dumm.body.setSize(50, 50).setOffset(120, 150);
+      dummy.setData('memory', new Memory());
+      dummy.setScale(0.3).setCollideWorldBounds(true);
+      dummy.body.setSize(50, 50).setOffset(120, 150);
     });
 
     this.physics.add.collider(this.player, walls);
@@ -870,35 +1326,76 @@ export default class BasicScene extends Phaser.Scene {
       this.easystar.setAcceptableTiles([0]);
       this.easystar.enableDiagonals();
       this.easystar.disableCornerCutting();
-
-      // const moveToLoc1 = this.getTaskCoordinates('chairTask');
+      //TESTING AREA
+      // dum1.setData('isGoingToVent', true);
+      // dum1.setData('entranceVentName', 'vent1');
+      const moveToLoc1 = this.getLocationCoordinates('admin');
       // const moveToLoc2 = this.getVentCoordinates('vent2');
-      // this.commandBotToSpot(dum1, moveToLoc1.x, moveToLoc1.y); //TEST dummies -> nav
+      this.commandBotToSpot(dum1, moveToLoc1.x, moveToLoc1.y); //TEST dummies -> nav
       // this.commandBotToSpot(dum2, moveToLoc2.x, moveToLoc2.y); //TEST dummies -> nav
+
       // console.log(this.player);
       // this.commandBotToFollow(dum2, dum1);
     });
     // 5. ZONES & UI (The Fixes)
+    {
+      /*
+      killZone - red - outmost rect of player 
+      playerInteractZone - green - inner rect of player
+      visibleZones - black - the biggest rect of player
+      dummiesInteractZones - white - small rect of player
+      locationZones,taskGrp:{taskZones},collisiongrp:{obstacleZones} - not visible - the zone to find the names
+      */
+    }
+    //PLAYER ZONES
+    //KILL ZONE (outer rect)
     this.killZone = this.add.zone(0, 0, 200, 200);
     this.physics.add.existing(this.killZone);
-    (this.killZone.body as Phaser.Physics.Arcade.Body).moves = false;
-
-    this.interactZone = this.add.zone(0, 0, 150, 150);
-    this.physics.add.existing(this.interactZone);
-    (this.interactZone.body as Phaser.Physics.Arcade.Body).moves = false;
+    const killBody = this.killZone.body as Phaser.Physics.Arcade.Body;
+    killBody.moves = false;
+    killBody.debugShowBody = true; // Force it to draw
+    killBody.debugBodyColor = 0xff0000; // Hex color (0xff0000 is Red, 0x00ff00 is Green,0x0000ff is blue)
+    //INTERACT ZONE (inner rect)
+    this.playerInteractZone = this.add.zone(0, 0, 150, 150);
+    this.physics.add.existing(this.playerInteractZone);
+    const interactBody = this.playerInteractZone
+      .body as Phaser.Physics.Arcade.Body;
+    interactBody.moves = false;
+    interactBody.debugShowBody = true; // Force it to draw
+    interactBody.debugBodyColor = 0x00ff00; // Hex color (0xff0000 is Red, 0x00ff00 is Green,0x0000ff is blue)
+    //DUMMY ZONES
+    //VISIBLE ZONE (biggest rect) & INTERACT ZONE (for dummy)
     this.visibleZones = this.physics.add.group();
+    this.dummiesInteractZones = this.physics.add.group();
     this.dummies.children.iterate((d: any) => {
       const dummy = d as Phaser.Physics.Arcade.Sprite;
-      const zone = this.add.zone(dummy.x, dummy.y, 800, 800);
-      this.physics.add.existing(zone);
-      (zone.body as Phaser.Physics.Arcade.Body).moves = false;
+      //[VISIBLE ZONE CREATION]
+      const visibleZone = this.add.zone(dummy.x, dummy.y, 800, 800);
+      this.physics.add.existing(visibleZone);
+      const body = visibleZone.body as Phaser.Physics.Arcade.Body;
+      body.moves = false;
+      visibleZone.setData('visibleZoneOwner', dummy.name);
+      dummy.setData('visibleZone', visibleZone);
+      this.visibleZones.add(visibleZone);
 
-      zone.setData('zoneOwner', dummy.name);
-      dummy.setData('visibleZone', zone);
+      //[INTERACT ZONE CREATION]
+      const dummyInteractZone = this.add.zone(dummy.x, dummy.y, 150, 150);
+      this.physics.add.existing(dummyInteractZone);
+      const interactBody = dummyInteractZone.body as Phaser.Physics.Arcade.Body;
+      interactBody.moves = false;
+      dummyInteractZone.setData('interactZoneOwner', dummy.name);
+      dummy.setData('interactZone', dummyInteractZone);
+      this.dummiesInteractZones.add(dummyInteractZone);
 
-      this.visibleZones.add(zone);
+      // --- THE DEBUG COLOR FIX ---
+      body.debugShowBody = true; // Force it to draw
+      body.debugBodyColor = 0x000000; // Hex color (0xff0000 is Red, 0x00ff00 is Green)
+      interactBody.debugShowBody = true; // Force it to draw
+      interactBody.debugBodyColor = 0xffffff; // Hex color (0xff0000 is Red, 0x00ff00 is Green,0x0000ff is blue)
     });
 
+    this.player.setData('todoTasksIndex', [0, 1, 2, 3, 4]);
+    this.player.setData('completedTasks', []);
     this.setPlayerRole('impostor'); // Try testing with 'crewmate' or 'impostor'
     // 6. DARKNESS & CAM
     this.cameras.main.setBackgroundColor('#000000');
@@ -970,19 +1467,19 @@ export default class BasicScene extends Phaser.Scene {
   update() {
     // 1. RESET STATE FIRST (so that buttons can have low alpha )
     this.reportTarget = false;
-    this.isMeetingCalled = false;
+
     this.currentTask = null;
     this.currentTarget = null;
     this.targetVent = null;
     // 2. TRACK ZONES TO PLAYER
     this.killZone.setPosition(this.player.x, this.player.y);
-    this.interactZone.setPosition(this.player.x, this.player.y);
+    this.playerInteractZone.setPosition(this.player.x, this.player.y);
 
     // 3. RUN PHYSICS LOGIC
     // Check Tasks (Crewmate only)
     if (this.playerRole === 'crewmate') {
       this.physics.overlap(
-        this.interactZone,
+        this.playerInteractZone,
         this.taskGroup,
         (_zone, target) => {
           if (target instanceof Phaser.GameObjects.GameObject) {
@@ -992,21 +1489,60 @@ export default class BasicScene extends Phaser.Scene {
       );
     }
     if (this.playerRole === 'impostor') {
-      this.physics.overlap(this.interactZone, this.ventGroup, (_zone, vent) => {
-        if (vent instanceof Phaser.GameObjects.GameObject) {
-          this.targetVent = vent.getData('targetVent');
-          this.currVentPos = vent.getData('currVentPos');
+      this.physics.overlap(
+        this.playerInteractZone,
+        this.ventGroup,
+        (_zone, vent) => {
+          if (vent instanceof Phaser.GameObjects.GameObject) {
+            this.targetVent = vent.getData('targetVent');
+            this.currVentPos = vent.getData('currVentPos');
+          }
+        },
+      );
+    }
+    if (this.isDummyImpostor) {
+      this.dummies.getChildren().forEach((d: any) => {
+        const dummy = d as Phaser.Physics.Arcade.Sprite;
+        const dummyInteractZone = dummy.getData('interactZone');
+        if (dummyInteractZone && dummyInteractZone.active) {
+          this.physics.overlap(
+            dummyInteractZone,
+            this.ventGroup,
+            (_zone, vent) => {
+              if (vent instanceof Phaser.GameObjects.GameObject) {
+                dummy.setData('targetVent', vent.getData('targetVent'));
+                dummy.setData('currVentPos', vent.getData('currVentPos'));
+              }
+            },
+          );
         }
       });
+      if (this.playerRole === 'impostor') {
+        this.physics.overlap(
+          this.playerInteractZone,
+          this.ventGroup,
+          (_zone, vent) => {
+            if (vent instanceof Phaser.GameObjects.GameObject) {
+              this.targetVent = vent.getData('targetVent');
+              this.currVentPos = vent.getData('currVentPos');
+            }
+          },
+        );
+      }
     }
     //AI VISIBLE ZONE
-    if (this.dummies && this.visibleZones) {
+    if (this.dummies && this.visibleZones && this.dummiesInteractZones) {
       this.dummies.children.iterate((d: any) => {
         const dummy = d as Phaser.Physics.Arcade.Sprite;
-        const zone = dummy.getData('visibleZone');
-        if (zone) {
-          zone.x = dummy.x;
-          zone.y = dummy.y;
+        const visibleZone = dummy.getData('visibleZone');
+        if (visibleZone) {
+          visibleZone.x = dummy.x;
+          visibleZone.y = dummy.y;
+        }
+        const interactZone = dummy.getData('interactZone');
+        if (interactZone) {
+          interactZone.x = dummy.x;
+          interactZone.y = dummy.y;
         }
 
         const prevLoc = dummy.getData('loc') || '';
@@ -1020,10 +1556,10 @@ export default class BasicScene extends Phaser.Scene {
         }
         const wasSabotaged = dummy.getData('wasSabotaged') || false;
         if (this.isSabotaged !== wasSabotaged) {
-          const newVision = this.isSabotaged ? 400 : 800;
-          zone.setSize(newVision, newVision);
-          if (zone.body) {
-            (zone.body as Phaser.Physics.Arcade.Body).setSize(
+          const newVision = this.isSabotaged ? 100 : 800;
+          visibleZone.setSize(newVision, newVision);
+          if (visibleZone.body) {
+            (visibleZone.body as Phaser.Physics.Arcade.Body).setSize(
               newVision,
               newVision,
             );
@@ -1036,13 +1572,15 @@ export default class BasicScene extends Phaser.Scene {
         [this.dummies, this.player],
         (z, d) => {
           const dummy = d as Phaser.Physics.Arcade.Sprite;
+          if (dummy.getData('isSwept')) return;
           const zone = z as Phaser.GameObjects.Zone;
-          const zoneOwnerName = zone.getData('zoneOwner');
+          const zoneOwnerName = zone.getData('visibleZoneOwner');
           const zoneOwner = this.dummies
             .getChildren()
             .find(
               (b: any) => b.name === zoneOwnerName,
             ) as Phaser.Physics.Arcade.Sprite;
+          // if (zoneOwner && zoneOwner.getData('isDead')) return;
           //CoolDown timer
           const currTime = this.time.now;
           const coolDownTime = 2 * 1000; //a dummy can be observed only every 5 seconds
@@ -1083,7 +1621,114 @@ export default class BasicScene extends Phaser.Scene {
                 }
               }
               dummy.setData(blinkKey, currTime);
+              //[SURVIVAL] (run away from danger)
+              const memory = zoneOwner.getData('memory') as Memory;
+              const targetSus = memory.susMatrix[dummy.name] || 0;
+              console.warn(
+                'ZoneOwner name:',
+                dummy.name,
+                'target:',
+                targetSus,
+                'score:',
+                memory.susMatrix,
+              );
 
+              if (
+                zoneOwner.getData('role') === 'crewmate' &&
+                !zoneOwner.getData('isDead')
+              ) {
+                const memory = zoneOwner.getData('memory') as Memory;
+                const targetSus = memory.susMatrix[this.player.name] || 0;
+                console.warn(
+                  'targetSus',
+                  dummy.name,
+                  ':',
+                  targetSus,
+                  memory.susMatrix,
+                );
+                const dist = Phaser.Math.Distance.Between(
+                  zoneOwner.x,
+                  zoneOwner.y,
+                  this.player.x,
+                  this.player.y,
+                );
+                const lastEvadeTime =
+                  zoneOwner.getData(`lastEvadeFrom_${this.player.name}`) || 0;
+                const canReact = currTime - lastEvadeTime > 2000;
+
+                if (canReact) {
+                  // 🔴 HIGH SUS: RUN TO THE SAFEST PLACE (The Button)
+                  console.error(
+                    'CANREACT FOR SUS:',
+                    targetSus,
+                    'with a dist of:',
+                    dist,
+                  );
+
+                  if (targetSus >= 70 && dist < 300) {
+                    console.log(
+                      `🏃 [${zoneOwnerName}] is fleeing from highly suspicious ${this.player.name}!`,
+                    );
+                    zoneOwner.setData('lastEvadeTime', currTime);
+
+                    // 1. Drop tasks, stop following, wipe intents
+                    zoneOwner.setData('isFleeing', true);
+                    zoneOwner.setData('isWorking', false);
+                    zoneOwner.setData('isFollowing', false);
+                    zoneOwner.setData('isGoingToTask', false);
+
+                    // 2. Run to a guaranteed safe haven!
+                    this.commandBotToSpot(
+                      zoneOwner,
+                      emergency_button_loc.x,
+                      emergency_button_loc.y,
+                    );
+                  }
+                  // 🟡 MEDIUM SUS: KITE AND KEEP DISTANCE SAFELY
+                  else if (targetSus >= 40 && targetSus < 70 && dist < 120) {
+                    console.log(
+                      `👀 [${zoneOwnerName}] is backing away from ${dummy.name}.`,
+                    );
+                    zoneOwner.setData('lastEvadeTime', currTime);
+
+                    zoneOwner.setData('isWorking', false);
+                    zoneOwner.setData('isFollowing', false);
+                    zoneOwner.setData('isGoingToTask', false);
+
+                    const dx = zoneOwner.x - dummy.x;
+                    const dy = zoneOwner.y - dummy.y;
+                    const length = Math.sqrt(dx * dx + dy * dy) || 1;
+
+                    // Project 100 pixels away
+                    const targetX = zoneOwner.x + (dx / length) * 100;
+                    const targetY = zoneOwner.y + (dy / length) * 100;
+
+                    // Safely find the closest floor tile so they don't walk into walls!
+                    const gridX = Math.floor(targetX / TILE_SIZE);
+                    const gridY = Math.floor(targetY / TILE_SIZE);
+                    const safeTile = this.findClosestWalkable(gridX, gridY);
+
+                    const safePixelX = safeTile.x * TILE_SIZE + TILE_SIZE / 2;
+                    const safePixelY = safeTile.y * TILE_SIZE + TILE_SIZE / 2;
+
+                    this.commandBotToSpot(zoneOwner, safePixelX, safePixelY);
+                  }
+                  // 🟢 LOW SUS: BUDDY SYSTEM
+                  else if (targetSus < 40 && dist < 200) {
+                    if (
+                      !zoneOwner.getData('isWorking') &&
+                      !zoneOwner.getData('isTravelling') &&
+                      !zoneOwner.getData('isFollowing')
+                    ) {
+                      console.log(
+                        `🤝 [${zoneOwnerName}] feels safe and is buddying up with ${dummy.name}.`,
+                      );
+                      zoneOwner.setData('lastEvadeTime', currTime);
+                      this.commandBotToFollow(zoneOwner, dummy);
+                    }
+                  }
+                }
+              }
               // const dummyPos ={x:dummy.x, y:dummy.y}
               this.taskGroup.getChildren().forEach((t: any) => {
                 const dist = Phaser.Math.Distance.Between(
@@ -1113,7 +1758,7 @@ export default class BasicScene extends Phaser.Scene {
     }
 
     // Check Emergency Button (Everyone)
-    this.physics.overlap(this.interactZone, this.emergencyGroup, () => {
+    this.physics.overlap(this.playerInteractZone, this.emergencyGroup, () => {
       this.currentTask = 'emergency_button';
     });
 
@@ -1147,6 +1792,72 @@ export default class BasicScene extends Phaser.Scene {
         }
       });
     }
+    //[DUMMIES] KILL
+    this.dummies.getChildren().forEach((d: any) => {
+      const dummy = d as Phaser.Physics.Arcade.Sprite;
+      if (dummy.getData('role') === 'impostor' && !dummy.getData('isDead')) {
+        let shortestDist = 150;
+        dummy.setData('currentTarget', null);
+        const interactZone = dummy.getData('interactZone');
+        if (interactZone && interactZone.active) {
+          this.physics.overlap(
+            dummy.getData('interactZone'),
+            [this.dummies, this.player],
+            (_zone, tar) => {
+              const alivetarget = tar as Phaser.Physics.Arcade.Sprite;
+              if (
+                !alivetarget.getData('isDead') &&
+                alivetarget.name !== dummy.name &&
+                alivetarget.getData('role') === 'crewmate'
+              ) {
+                const dist = Phaser.Math.Distance.Between(
+                  alivetarget.x,
+                  alivetarget.y,
+                  dummy.x,
+                  dummy.y,
+                );
+                if (dist < shortestDist) {
+                  shortestDist = dist;
+                  dummy.setData('currentTarget', alivetarget);
+                }
+              }
+            },
+          );
+        }
+        const target = dummy.getData('currentTarget');
+        const nextKillTime = dummy.getData('nextKillTime') || 0;
+        //TODO:REMOVE ON REALITY
+        // If we have a valid target AND our cooldown is finished
+        if (target && this.time.now > nextKillTime) {
+          // 1. Drop the fake task/path immediately!
+          dummy.setData('isWorking', false);
+          dummy.setData('isTravelling', false);
+          dummy.setData('currentPath', []);
+
+          // 2. Execute the kill!
+          this.executeKill(dummy, target);
+
+          // 3. (Optional) Run away from the body!
+          const escapeNode = this.getLocationCoordinates('cafeteria');
+          this.commandBotToSpot(dummy, escapeNode.x, escapeNode.y);
+        }
+        // --- AI SABOTAGE TRIGGER ---
+        if (dummy.getData('role') === 'impostor' && !dummy.getData('isDead')) {
+          const nextSabotageTime = dummy.getData('nextSabotageTime') || 0;
+
+          // If cooldown is ready, AND the lights aren't already out...
+          if (this.time.now > nextSabotageTime && !this.isSabotaged) {
+            // Give them a random chance to do it, so they don't instantly spam it
+            const chance = Math.random();
+            const probsOfSabing = 0.99;
+            if (chance > probsOfSabing) {
+              this.executeSabotage(dummy);
+              // Notice we DON'T stop them from travelling or working here!
+            }
+          }
+        }
+      }
+    });
 
     if (deadTargets.length > 0) {
       this.reportTarget = true;
@@ -1164,7 +1875,9 @@ export default class BasicScene extends Phaser.Scene {
         if (key === 'btn_use') {
           shouldBeActive = !!this.currentTask;
         } else if (key === 'btn_kill') {
-          timeRemaining = Math.ceil(this.nextKillTime - this.time.now) / 1000;
+          timeRemaining = Math.ceil(
+            (this.player.getData('nextKillTime') - this.time.now) / 1000,
+          );
           shouldBeActive = !!this.currentTarget && timeRemaining <= 0;
         } else if (key === 'btn_report') {
           shouldBeActive = this.reportTarget;
@@ -1208,41 +1921,44 @@ export default class BasicScene extends Phaser.Scene {
     const speed = 400;
     this.player.setVelocity(0);
     let isMoving = false;
-
-    if (this.cursors.left.isDown || this.wasd.A.isDown) {
-      this.player.setVelocityX(-speed);
-      this.player.setFlipX(true);
-      isMoving = true;
-    } else if (this.cursors.right.isDown || this.wasd.D.isDown) {
-      this.player.setVelocityX(speed);
-      this.player.setFlipX(false);
-      isMoving = true;
-    }
-
-    if (this.cursors.up.isDown || this.wasd.W.isDown) {
-      this.player.setVelocityY(-speed);
-      isMoving = true;
-    } else if (this.cursors.down.isDown || this.wasd.S.isDown) {
-      this.player.setVelocityY(speed);
-      isMoving = true;
-    }
-    if (isMoving) {
-      this.player.play('walk', true);
-      if (!this.walkSound.isPlaying) {
-        this.walkSound.play();
-      }
+    if (!this.isIdle) {
+      this.player.setVelocity(0);
     } else {
-      if (this.isIdle) {
-        this.player.stop();
-        this.player.setTexture('player_walk');
+      if (this.cursors.left.isDown || this.wasd.A.isDown) {
+        this.player.setVelocityX(-speed);
+        this.player.setFlipX(true);
+        isMoving = true;
+      } else if (this.cursors.right.isDown || this.wasd.D.isDown) {
+        this.player.setVelocityX(speed);
+        this.player.setFlipX(false);
+        isMoving = true;
+      }
 
-        this.player.setFrame(12);
-        if (this.walkSound.isPlaying) {
-          this.walkSound.pause();
+      if (this.cursors.up.isDown || this.wasd.W.isDown) {
+        this.player.setVelocityY(-speed);
+        isMoving = true;
+      } else if (this.cursors.down.isDown || this.wasd.S.isDown) {
+        this.player.setVelocityY(speed);
+        isMoving = true;
+      }
+      if (isMoving) {
+        this.player.play('walk', true);
+        if (!this.walkSound.isPlaying) {
+          this.walkSound.play();
+        }
+      } else {
+        if (this.isIdle) {
+          this.player.stop();
+          this.player.setTexture('player_walk');
+
+          this.player.setFrame(12);
+          if (this.walkSound.isPlaying) {
+            this.walkSound.pause();
+          }
         }
       }
+      this.player.body.velocity.normalize().scale(speed);
     }
-    this.player.body.velocity.normalize().scale(speed);
     //DUMMY MOVEMENTS
     this.dummies.getChildren().forEach((d: any) => {
       if (!this.easystar) return;
@@ -1250,7 +1966,6 @@ export default class BasicScene extends Phaser.Scene {
 
       if (!dummy.getData('isDead')) {
         //PANICKING
-        console.log('AM I PANIKING:', dummy.getData('isPanicking'));
 
         if (dummy.getData('isPanicking')) {
           if (!this.isMeetingCalled) {
@@ -1269,8 +1984,11 @@ export default class BasicScene extends Phaser.Scene {
                 `🚨 [${dummy.name}] SAW ${dummy.getData('venterName')} vent`,
               );
               this.isMeetingCalled = true;
-              this.currentTask = 'emergency_button';
-              this.executeTasks();
+              this.sound.play('emergencyMeeting', { volume: 0.3 });
+
+              setTimeout(() => {
+                this.executeReport(dummy.name); // Pass the Dummy's name!
+              }, 1500);
             }
           } else {
             console.log(`MEETING ALREADY STARTED`);
@@ -1303,18 +2021,38 @@ export default class BasicScene extends Phaser.Scene {
               //10px of inaccuracy is accepted
               path.shift();
               if (path.length === 0) {
+                //Arrived at the destination
                 dummy.body?.reset(nextStep.x, nextStep.y);
                 dummy.stop();
                 dummy.setTexture('player_walk');
                 dummy.setFrame(12);
                 dummy.setData('isTravelling', false);
+                dummy.setData('isFleeing', false);
+                //[VENT]
+                if (dummy.getData('isGoingToVent')) {
+                  dummy.setData('isGoingToVent', false);
+                  dummy.setData('isVentingNow', true);
+
+                  const entranceVentName = dummy.getData('entranceVentName');
+                  const entranceVent = this.ventGroup
+                    .getChildren()
+                    .find((v: any) => v.name === entranceVentName);
+                  const exitVentName = entranceVent?.getData('targetVent');
+                  // this.time.delayedCall(500,()=>dummy.setAlpha(0))
+                  this.executeVent(dummy, dummy.x, dummy.y, exitVentName);
+                }
+                //[TASK]
                 ///STATE 2: If has job and stopped at it -> Start working
-                if (!dummy.getData('isWorking')) {
+                if (
+                  dummy.getData('isGoingToTask') &&
+                  !dummy.getData('isWorking')
+                ) {
                   const todoTasksIndex = dummy.getData('todoTasksIndex');
                   const currTaskIndex = dummy.getData('currTaskIndex');
                   if (todoTasksIndex && currTaskIndex < todoTasksIndex.length) {
                     dummy.setData('isWorking', true);
                     dummy.setData('taskStartedAt', this.time.now);
+                    dummy.setData('isGoingToTask', false);
                   }
                 }
               }
@@ -1330,11 +2068,16 @@ export default class BasicScene extends Phaser.Scene {
         }
         //TASK QUEUE LOGIC [STATE MACHINE]
         ///STATE 1: Idle check -> Assign a job
-        if (!dummy.getData('isWorking') && !dummy.getData('isTravelling')) {
+        if (
+          !dummy.getData('isWorking') &&
+          !dummy.getData('isTravelling') &&
+          !dummy.getData('isFleeing')
+        ) {
           const todoTasksIndex = dummy.getData('todoTasksIndex');
           const currTaskIndex = dummy.getData('currTaskIndex');
           if (todoTasksIndex && currTaskIndex < todoTasksIndex.length) {
             const currTask = ALL_TASKS[todoTasksIndex[currTaskIndex]];
+            dummy.setData('currentTaskName', currTask.name);
             const taskCoord = this.getTaskCoordinates(currTask.name);
             const minTime = currTask.timeRange[0],
               maxTime = currTask.timeRange[1];
@@ -1346,6 +2089,7 @@ export default class BasicScene extends Phaser.Scene {
               (Math.floor(Math.random() * (maxTime - minTime)) + minTime) *
               1000;
             dummy.setData('taskDuration', randomDuration);
+            dummy.setData('isGoingToTask', true);
             this.commandBotToSpot(dummy, taskCoord.x, taskCoord.y);
           } else if (todoTasksIndex && currTaskIndex >= todoTasksIndex.length) {
             if (!dummy.getData('isAllTaskDone')) {
@@ -1357,22 +2101,26 @@ export default class BasicScene extends Phaser.Scene {
         ///STATE 3: Working
         if (dummy.getData('isWorking')) {
           if (!this.easystar) return;
-          const todoTasksIndex = dummy.getData('todoTasksIndex');
-          const currTaskIndex = dummy.getData('currTaskIndex');
-          const currTask = ALL_TASKS[todoTasksIndex[currTaskIndex]];
+          const currTaskName = dummy.getData('currentTaskName');
           const startedAt = dummy.getData('taskStartedAt') || 0;
           const taskDuration = dummy.getData('taskDuration') || 0;
           const currTime = this.time.now;
           if (currTime - startedAt > taskDuration) {
             console.log(`[${dummy.name}] FINISHED ITS TASK`);
             const currLoc = this.getLocation(dummy.x, dummy.y);
-            dummy
-              .getData('memory')
-              .writeMyActivity(`${currTask.name}`, currLoc);
+            if (dummy.getData('role') === 'impostor') {
+              dummy
+                .getData('memory')
+                .writeFakeActivity(`faking ${currTaskName}`, currLoc);
+            } else {
+              dummy
+                .getData('memory')
+                .writeMyActivity(`doing ${currTaskName}`, currLoc);
+            }
             dummy.setData('isWorking', false);
             const currTaskIndex = dummy.getData('currTaskIndex');
             dummy.setData('currTaskIndex', currTaskIndex + 1);
-            this.totalNoOfTasks -= 1;
+            this.updateTaskProgress();
           }
         }
       }
